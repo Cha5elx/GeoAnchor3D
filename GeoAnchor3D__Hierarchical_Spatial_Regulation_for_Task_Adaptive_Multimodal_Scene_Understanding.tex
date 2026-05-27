@@ -1,0 +1,639 @@
+\documentclass[lettersize,journal]{IEEEtran}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{array}
+\usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
+\usepackage{textcomp}
+\usepackage{stfloats}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{multirow}
+\usepackage{tabularx} % 用于统一表格宽度
+\usepackage{booktabs}
+\usepackage{pifont}
+\usepackage{balance}
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+\hyphenation{op-tical net-works semi-conduc-tor IEEE-Xplore}
+
+\begin{document}
+
+% --- 压缩间距 ---
+\setlength{\floatsep}{3pt plus 1pt minus 1pt}
+\setlength{\textfloatsep}{3pt plus 1pt minus 1pt}
+\setlength{\intextsep}{3pt plus 1pt minus 1pt}
+\setlength{\dblfloatsep}{3pt plus 1pt minus 1pt}
+\setlength{\dbltextfloatsep}{3pt plus 1pt minus 1pt}
+\setlength{\abovecaptionskip}{1pt}
+\setlength{\belowcaptionskip}{1pt}
+\setlength{\abovedisplayskip}{2pt plus 1pt minus 1pt}
+\setlength{\belowdisplayskip}{2pt plus 1pt minus 1pt}
+\setlength{\abovedisplayshortskip}{0pt plus 1pt}
+\setlength{\belowdisplayshortskip}{1pt plus 1pt minus 1pt}
+\setlength{\parskip}{0pt}
+
+\title{GeoAnchor3D: Hierarchical Spatial Regulation for Task-Adaptive Multimodal Scene Understanding}
+
+\author{Xue~Zhang, Chenxu~Liu, Minghao~Zou, Xiaoshuai~Hao,
+
+        Wei~Zhou, ~\IEEEmembership{Senior~Member, ~IEEE,} 
+        and~Yao~Zhao, ~\IEEEmembership{Fellow, ~IEEE}%
+\thanks{Xue Zhang and Chenxu Liu are with the College of Computer Science and Engineering,
+Shandong University of Science and Technology, Qingdao, China
+(e-mail: xuezhang@sdust.edu.cn; cxliu@sdust.edu.cn).
+
+Minghao Zou and Wei Zhou are with the School of Computer Science and Informatics,
+Cardiff University, Cardiff, U.K.
+(e-mail: zoum1@cardiff.ac.uk; ZhouW26@cardiff.ac.uk).
+
+Xiaoshuai Hao is with Xiaomi EV, China
+(e-mail: haoxiaoshuai714@163.com).
+
+Yao Zhao is with the Institute of Information Science,
+Beijing Jiaotong University, Beijing, China
+(e-mail: yzhao@bjtu.edu.cn).}%
+
+% Minghao Zou is the corresponding author.}%
+% \thanks{Manuscript received XXX; revised XXX.}% <-this % stops a space
+ }
+
+% The paper headers
+\markboth{IEEE Transactions on Multimedia,~Vol.~XX, No.~XX, XXX~202X}%
+{Author~\MakeLowercase{\textit{et al.}}: GeoAnchor3D: Hierarchical Spatial Regulation}
+
+\maketitle
+
+\begin{abstract}
+Current multimodal large language models (MLLMs) for scene understanding face two primary challenges. First, cross-modal interaction mechanisms are typically inflexible, relying on static fusion strategies that combine geometric and visual-semantic representations with fixed weighting schemes, thereby limiting their adaptability across diverse tasks. Second, these models exhibit progressive modality degradation in deep layers, where geometric cues are increasingly dominated by high-level semantic features, resulting in weakened spatial reasoning capability. To address these challenges, we propose GeoAnchor3D, a unified framework grounded in {hierarchical spatial regulation}. At the input level, Instruction-Aware Geometric Gating Attention (IGGA) performs per-head gating {conditioned on instruction semantics, dynamically routing geometric information according to task demands.} At the representation level, a Geometry-Aware Auxiliary Task Head (GATH) preserves spatial topology in intermediate LLM hidden states through coordinate regression {of 3D bounding boxes}, operating only during training without inference overhead. Extensive experiments on four public datasets demonstrate that GeoAnchor3D consistently improves performance on cross-modal grounding and  question answering, highlighting its effectiveness in enhancing geometry-aware scene understanding.
+\end{abstract}
+
+\begin{IEEEkeywords}
+3D Scene Understanding, Multimodal Large Language Models, Spatial Reasoning, Dynamic Gating
+\end{IEEEkeywords}
+
+\section{Introduction}
+Multimodal large language models (MLLMs) have achieved progress in vision-language understanding~\cite{pointllm2024}, enabling semantic perception and reasoning. Building upon these advances, spatial-aware MLLMs have been extended to 3D scene understanding~\cite{3dllm2023,scenellm2024}, supporting tasks such as cross-modal grounding, question answering, and dense captioning.
+\begin{figure*}[tbp]
+    \centering
+    \includegraphics[page=1, width=0.8\textwidth]{imgs/Framework Diagram.pdf}
+    \caption{\textbf{Motivation illustration.} (a) Inflexible modality interaction, where static fusion leads to localization drift and spatial interference. (b) {Deep-layer modality degradation, where semantic dominance leads to progressive geometric forgetting.}}
+    \label{fig:motivation}
+\end{figure*}
+
+However, existing methods face two major challenges, as illustrated in Fig.~\ref{fig:motivation}. First, inflexible modality interaction hinders their ability to accommodate heterogeneous task demands. {Cross-modal} grounding and scene graph reasoning require precise geometric modeling and relational spatial reasoning~\cite{languagerefer2021,ViL3DRel2022,feng2025hierarchical}, whereas attribute question answering depends on semantic understanding with substantially lower requirements for spatial awareness. Existing MLLMs either rely heavily on implicit visual representations~\cite{chatscene2024} or employ static cross-modal fusion with fixed modality weights, limiting adaptive modality allocation conditioned on user instructions. Consequently, these models often exhibit localization drift in geometry-intensive tasks and spatial interference in semantic-oriented tasks.
+
+Second, deep-layer modality degradation {manifests} as progressive geometric forgetting. Most spatial-aware MLLMs are built upon text-pretrained LLMs such as LLaMA~\cite{llama2023}, which are inherently biased toward abstract semantic representations and lack inductive priors for spatial geometry~\cite{how3d2025}. As multimodal features propagate through deeper layers, semantic representations gradually dominate and suppress geometric cues~\cite{spatial-mllm2025}, weakening spatial reasoning capability.
+
+To alleviate these issues, recent studies have explored adaptive routing mechanisms~\cite{wang2026dynam3d} and auxiliary spatial supervision~\cite{huang2026mllm}. However, existing approaches typically rely on either coarse token-level gating or heavy visual representation constraints. Token-level or scalar gating strategies directly modulate multimodal features in the representation space, potentially disrupting pre-trained semantic structures and entangling geometric cues with semantic reasoning. Meanwhile, auxiliary spatial constraints are often imposed on deep specialization layers. Nevertheless, directly applying such supervision to deep representations may introduce gradient conflicts with the primary language modeling objective~\cite{gradientsurgery2020,conflictgradient2021}, limiting the preservation of geometric information.
+
+% Although large-scale spatial pretraining can partially alleviate this issue, it is computationally expensive and often compromises generalization ability. Furthermore, directly imposing auxiliary geometric constraints on deep layers may lead to gradient conflicts with the primary language modeling objective~\cite{gradientsurgery2020,conflictgradient2021}, limiting their effectiveness in preserving spatial awareness.
+
+To address these challenges, we propose GeoAnchor3D, a unified framework for task-adaptive multimodal scene understanding. GeoAnchor3D is based on the insight that geometric information should be adaptively routed at the input stage and spatial topology retained through depth, yielding two tightly coupled mechanisms {for hierarchical spatial regulation.}
+
+At the input level, the Instruction-Aware Geometric Gating Attention (IGGA) performs instruction-conditioned geometric routing by predicting per-head gating signals from instruction semantics, enabling adaptive and modality allocation. At the representation level, the Geometry-Aware Auxiliary Task Head (GATH) facilitates geometric retention by reinforcing spatial topology through coordinate regression. GATH is deployed on intermediate layers, where multimodal representations remain expressive while preserving geometric fidelity.
+
+Importantly, the two mechanisms are complementary. Without IGGA, geometric information may already be suppressed before reaching intermediate layers, limiting the effectiveness of GATH. Conversely, without GATH, the geometric benefits introduced by IGGA gradually diminish during deep feature propagation. Through this collaborative design, GeoAnchor3D achieves robust and task-adaptive multimodal scene understanding. Unlike existing multimodal routing approaches that perform relatively independent feature modulation, GeoAnchor3D establishes a coupled hierarchical spatial regulation framework, where instruction-conditioned geometric routing and deep geometric retention jointly improve task-adaptive multimodal scene understanding.
+
+In summary, our main contributions are as follows:
+
+\begin{itemize}
+
+\item[(i)] {We propose GeoAnchor3D, a unified framework for task-adaptive multimodal scene understanding that improves the balance between semantic expressiveness and geometric fidelity through {hierarchical spatial} regulation across different representation stages.}
+
+\item[(ii)] We propose IGGA, a {geometric} routing mechanism that performs per-head gating conditioned on instruction semantics, enabling adaptive modality allocation.
+
+\item[(iii)] We introduce GATH, a training-only geometric retention module for preserving spatial topology in intermediate LLM representations. GATH achieves this through auxiliary coordinate regression without introducing additional inference overhead.
+
+\item[(iv)] Extensive experiments on cross-modal grounding, question answering, and dense captioning demonstrate that GeoAnchor3D consistently outperforms strong baselines and generalizes effectively across diverse 3D scene understanding tasks.
+
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Cross-Modal Scene Understanding}
+Cross-modal scene understanding aims to interpret 3D environments through joint reasoning over vision, language, and spatial geometry. Representative tasks include cross-modal grounding~\cite{scanrefer2020, referit3d2020, multi3drefer2023}, dense captioning~\cite{scan2cap2021, Vote2Cap-DETR++2024, deng2024cdkm}, and question answering~\cite{scanqa2022, sqa3d2023}. Recent studies further explore explainable 3D grounded question answering~\cite{zhao2023fe3dgqa} and language-assisted 3D understanding~\cite{wu2025lastpcl}. 
+
+Early methods relied on task-specific architectures~\cite{scanrefer2020, scan2cap2021}, leading to limited generalization across tasks. Later works attempted to unify different objectives through shared representations~\cite{3djcg2022, d3net2022}, while large-scale pre-training frameworks~\cite{3dvlp2023, 3dvista2023} further established unified paradigms for 3D vision-language learning. Other approaches incorporated cross-modal scene graphs~\cite{wei20243dsgg, feng2025hierarchical} to model hierarchical object relationships and spatial dependencies. Nevertheless, most existing methods remain fundamentally task-specific, relying on dedicated prediction heads.
+
+A challenge in cross-modal scene understanding is the heterogeneous requirements for geometric and semantic reasoning across tasks. Geometry-intensive tasks require fine-grained spatial reasoning, while semantic-oriented tasks rely more heavily on visual-semantic understanding. Existing methods either separate geometric and semantic representations through complex dual-branch architectures~\cite{spatial-mllm2025} or adopt multi-stage reasoning pipelines~\cite{scenecot2025}, increasing architectural complexity. 
+In contrast, GeoAnchor3D addresses this heterogeneity through hierarchical spatial regulation { across network depths, unifying geometric routing and retention within a single framework rather than isolating them in separate branches or stages.} 
+
+\subsection{MLLMs for Scene Understanding}
+MLLMs have accelerated the integration of visual and geometric modalities for 3D scene understanding. 3D MLLMs, such as PointLLM~\cite{pointllm2024} and ImageBind-LLM~\cite{imagebindllm}, focused on object-level understanding by projecting point clouds into the embedding space of LLMs. Subsequent works extended this paradigm to scene-level reasoning. For example, 3D-LLM~\cite{3dllm2023} introduced learnable location tokens for {cross-modal} grounding, Chat-3D~\cite{chat3d2023} improved scene-language alignment through multimodal pre-training, and Chat-Scene~\cite{chatscene2024} modeled scenes via object-level proposals with unique identifiers. Recently, 3UR-LLM~\cite{xiong20253urllm} proposed an end-to-end cross-modal compression framework for question answering.
+
+Despite these advances, most existing MLLMs still rely on static cross-modal fusion with fixed modality interactions. Although stage-wise early fusion~\cite{cho2024crossvlt} partially improves modality coordination, it remains dependent on predefined fusion configurations. Consequently, geometric information may introduce unnecessary interference in semantic-oriented tasks, while geometric cues are progressively suppressed by dominant semantic representations in deeper layers. In contrast, GeoAnchor3D addresses these issues through {hierarchical spatial regulation that couples} instruction-conditioned geometric routing and deep geometric retention, achieving adaptive and robust cross-modal scene understanding while keeping the auxiliary geometric constraints strictly confined to the training phase.
+
+\section{Methodology}
+
+\begin{figure*}[tbp]
+    \centering
+    \includegraphics[page=2, width=0.85\textwidth]{imgs/Framework Diagram.pdf}
+    \caption{\textbf{Architecture of GeoAnchor3D.} Object proposals are extracted from 3D scenes and projected into LLM token space. IGGA dynamically fuses spatial masks with semantic attention prior to the LLM. During training, GATH regresses 3D bounding boxes from hidden states to preserve spatial topology.}
+    \label{fig:architecture}
+\end{figure*}
+
+\subsection{Overview of GeoAnchor3D}
+
+Given a 3D scene point cloud $\mathcal{P} \in \mathbb{R}^{N_p \times 6}$ {(3D coordinates and RGB values) with multi-view images $\mathcal{M}$}, and a natural language instruction $\mathcal{I}$, GeoAnchor3D aims to predict the target response $\mathcal{Y}$, such as bounding box coordinates for {cross-modal} grounding or textual outputs for question answering and dense captioning. The overall framework is illustrated in Fig.~\ref{fig:architecture}. The architecture realizes hierarchical spatial regulation by coupling instruction-conditioned geometric routing with deep geometric retention, {instead of relying on the independent modulation strategies adopted in conventional approaches.}
+
+Specifically, the model first extracts $N$ object proposals from $\mathcal{P}$ using Mask3D~\cite{mask3d2023}. For each proposal, 3D geometric features are extracted using Uni3D~\cite{uni3d2024}, while 2D appearance features are obtained from multi-view ScanNet images using DINOv2~\cite{dinov22023}. A Multi-Layer Perceptron (MLP) projects these features into a unified $D$-dimensional LLM input space, producing object features $\mathbf{F}_{obj} \in \mathbb{R}^{N \times D}$ and image features $\mathbf{F}_{img} \in \mathbb{R}^{N \times D}$. Meanwhile, the language instruction $\mathcal{I}$ is tokenized by the LLM tokenizer~\cite{llama2023} into $L$ tokens, whose embeddings are pooled to obtain a global instruction embedding $\mathbf{f}_{instr} \in \mathbb{R}^{D_{instr}}$. 
+% Such multimodal representation design is inspired by recent advances in cross-modal representation learning~\cite{wu2024crossnet,zhang2025pointmcd}.
+
+Building upon these embeddings, GeoAnchor3D introduces two complementary modules. The IGGA operates before the LLM layers and takes $(\mathbf{F}_{obj}, \mathbf{f}_{instr})$ as input. Specifically, a dynamic gating function $\mathcal{G}(\cdot)$ {takes $\mathbf{f}_{instr}$ as input} and adaptively modulates geometric features according to instruction semantics, producing refined geometric representations $\mathbf{F}_{obj}^{*} \in \mathbb{R}^{N \times D}$. The LLM then receives the concatenated input $[O_i; \mathbf{F}_{img_i}; \mathbf{F}_{obj_i}^{*}]$ for each object $i$, where $O_i$ denotes the textual token embedding of the object's category. To mitigate deep-layer {modality} degradation, the GATH is introduced into the intermediate layers of the LLM during training. Let $\mathbf{H}^{(l)} \in \mathbb{R}^{T \times D}$ denote the hidden states at the $l$-th LLM layer, where $T$ is the total sequence length of the LLM input. GATH applies coordinate regression constraints to these hidden states, encouraging the model to preserve spatial topology throughout deep feature propagation.
+
+\subsection{Instruction-Aware Geometric Gating Attention}
+\label{sec:igga}
+
+\begin{figure*}[tbp]
+    \centering
+    \includegraphics[page=3, width=0.84\textwidth]{imgs/Framework Diagram.pdf}
+    \caption{\textbf{Architecture of IGGA.} Semantic self-attention $\mathbf{A}_{sem}$ and a spatial mask $\mathbf{M}_{spatial}$ from pairwise geometric relationships are combined via {per-head gating conditioned on instruction semantics}, yielding the fused attention $\mathbf{A}_{fused}$.}
+    \label{fig:igga}
+\end{figure*}
+
+IGGA performs instruction-conditioned {geometric} routing by adaptively controlling geometric information injection for different instructions and attention heads, inspired by dynamic gating mechanisms in multimodal learning~\cite{lin2024dynamically}. Unlike task-level gating that assigns a single routing decision to a sample, IGGA produces per-head coefficients $\boldsymbol{\alpha} \in (0,1)^H$, leveraging the observation that different attention heads specialize in distinct relational patterns. For spatial reasoning instructions (e.g., ``find the chair left of the table''), geometry-sensitive heads receive enhanced geometric injection, while semantic-oriented heads are minimally affected. In contrast, for {attribute-oriented instructions} (e.g., ``what color is the chair?''), geometric injection is suppressed across all heads. This per-head and continuous routing strategy alleviates the rigid behavior of scalar gating and enables instruction-level specialization. During training, the gate supervision loss $\mathcal{L}_{\text{gate}}$ interacts with the language modeling objective $\mathcal{L}_{\text{LM}}$ through competing gradients. As a result, $\mathcal{L}_{\text{LM}}$ can override task-type priors when they conflict with generation quality, allowing $\alpha_h$ to adapt beyond fixed dataset-level assignments.
+% as training progresses, the gate supervision $\mathcal{L}_{\text{gate}}$ and language modeling loss $\mathcal{L}_{\text{LM}}$ interact in a self-correcting manner, allowing the model to route modality information based on instruction content rather than dataset membership.
+
+As shown in Fig.~\ref{fig:igga}, IGGA consists of four stages. First, object features $\mathbf{F}_{obj}$ are processed through self-attention to capture object-level contextual representations for subsequent geometric modulation. Specifically, {semantic} self-attention weights $\mathbf{A}_{sem} \in \mathbb{R}^{N \times N}$ are computed using learnable projection matrices $\mathbf{W}_Q, \mathbf{W}_K, \mathbf{W}_V \in \mathbb{R}^{D \times D}$:
+\begin{align}
+\mathbf{Q} = \mathbf{F}_{obj}\mathbf{W}_Q, \quad
+\mathbf{K} = \mathbf{F}_{obj}\mathbf{W}_K, \quad
+\mathbf{V} = \mathbf{F}_{obj}\mathbf{W}_V,
+\end{align}
+\begin{equation}
+\mathbf{A}_{sem} = \text{Softmax}\left(\frac{\mathbf{Q}\mathbf{K}^\top}{\sqrt{d_k}}\right),
+\end{equation}
+where $d_k = D/H$ is the per-head dimension and $H$ is the number of attention heads.
+
+To model spatial relationships, we construct a pairwise spatial mask to augment semantic attention with geometric cues in the second stage. Given objects $i$ and $j$ with 3D center coordinates $\mathbf{p}_i, \mathbf{p}_j \in \mathbb{R}^3$, the relative position is defined as $\Delta_{ij} = \mathbf{p}_j - \mathbf{p}_i$. Following prior spatial relation reasoning methods~\cite{ViL3DRel2022}, we characterize 3D spatial relationships using the Euclidean distance $d_{ij}$, horizontal azimuth angle $\theta_h^{ij}$, and vertical elevation angle $\theta_v^{ij}$:
+\begin{align}
+d_{ij} &= \|\Delta_{ij}\|_2, \\
+\theta_h^{ij} &= \arctan2(\Delta_{ij}^{(y)}, \Delta_{ij}^{(x)}), \\
+\theta_v^{ij} &= \arcsin\left(\frac{\Delta_{ij}^{(z)}}{d_{ij} + \epsilon}\right).
+\end{align}
+
+To ensure angular continuity, the geometric vector $\mathbf{s}_{ij}\in \mathbb{R}^5$ encodes the sine and cosine values of the azimuth and elevation angles together with the Euclidean distance:
+\begin{equation}
+\mathbf{s}_{ij} = [\sin\theta_h^{ij}, \cos\theta_h^{ij}, \sin\theta_v^{ij}, \cos\theta_v^{ij}, d_{ij}]^\top.
+\end{equation}
+
+The spatial mask $\mathbf{M}_{spatial} \in \mathbb{R}^{N \times N}$ is then constructed from pairwise {geometric} affinities between objects. Specifically, each entry $\mathbf{M}_{spatial}^{(i,j)}$ is computed by measuring the compatibility between the concatenated representation $[\mathbf{p}_i; \mathbf{F}_{obj}^{(j)}]$ and the geometric vector $\mathbf{s}_{ij}$:
+\begin{equation}
+\mathbf{M}_{spatial}^{(i,j)}
+=
+\sigma\left(
+(\mathbf{W}_p[\mathbf{p}_i; \mathbf{F}_{obj}^{(j)}])^\top
+\mathbf{s}_{ij}
+\right),
+\end{equation}
+where $\mathbf{F}_{obj}^{(i)} \in \mathbb{R}^{D}$ is the feature vector of object $i$, $[\cdot;\cdot]$ denotes concatenation, $\mathbf{W}_p \in \mathbb{R}^{5 \times (D+3)}$ denotes a learnable weight matrix, and $\sigma$ denotes a sigmoid function. $\mathbf{M}_{spatial}$ is shared across all attention heads.
+
+\begin{figure*}[tbp]
+    \centering
+    \includegraphics[page=4, width=0.68\textwidth]{imgs/Framework Diagram.pdf}
+    \caption{\textbf{Architecture of GATH.} Hidden states from intermediate LLM layers are aggregated via horizontal average pooling and vertical learnable layer weights, then passed through an MLP to regress 3D bounding boxes during training.}    
+    \label{fig:gath}
+\end{figure*}
+
+In the third stage, instruction-aware gating is introduced to regulate geometric information injection. The gating network $\mathcal{G}$ takes the pooled instruction embedding $\mathbf{f}_{instr} \in \mathbb{R}^{D_{instr}}$ and predicts per-head gating coefficients $\boldsymbol{\alpha}$ as:
+\begin{equation}
+\boldsymbol{\alpha} = \sigma(\mathbf{W}_g \cdot \text{ReLU}(\mathbf{W}_g' \mathbf{f}_{instr} + \mathbf{b}_g') + \mathbf{b}_g) \in (0,1)^H,
+\end{equation}
+where $\mathbf{W}_g' \in \mathbb{R}^{\frac{D}{4} \times D_{instr}}$ and $\mathbf{W}_g \in \mathbb{R}^{H \times \frac{D}{4}}$ are learnable weight matrices, $\mathbf{b}_g'$ and $\mathbf{b}_g$ denote learnable bias vectors, and $\alpha_h \in (0,1)$ denotes the gating coefficient for the $h$-th attention head ($h = 1, \dots, H$). We keep $\boldsymbol{\alpha}$ learnable rather than hard-coded to preserve end-to-end adaptability and generalization. This design enables instruction-aware modulation without requiring explicit task classification during inference.
+
+To encourage task-appropriate routing, we adopt a supervision strategy for gating. For cross-modal grounding tasks {~\cite{scanrefer2020, multi3drefer2023}}, the gating coefficients are encouraged toward $\alpha_h \rightarrow 1$, whereas for question answering and captioning tasks {~\cite{scanqa2022,scan2cap2021}}, they are regularized toward $\alpha_h \rightarrow 0$. These gating targets serve as soft priors: when an instruction requires stronger spatial reasoning than its task-type prior suggests, the language modeling loss generates conflicting gradients that pull the gating coefficients away from the prior, enabling instruction-level adaptation beyond task-level assignments. The gating supervision loss $\mathcal{L}_{\text{gate}}$ is formulated as:
+\begin{equation}
+\mathcal{L}_{\text{gate}} = \frac{1}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \mathbf{1}_{\text{mask}}^{(i)} \cdot \frac{1}{H} \sum_{h=1}^{H} (\alpha_h^{(i)} - \alpha_{\text{target}}^{(i)})^2,
+\label{eq:gate_loss}
+\end{equation}
+where $\mathcal{B}$ denotes a batch, $\mathbf{1}_{\text{mask}}$ is the mask of task type, and $\alpha_{\text{target}}^{(i)}$ denotes the target gating value assigned to sample $i$.
+
+In the fourth stage, to dynamically fuse semantic and geometric information, the effective spatial mask $\mathbf{M}_{effective} \in \mathbb{R}^{N \times N}$ is first computed via the per-head gating coefficients:
+\begin{equation}
+\mathbf{M}_{effective}^{(h)} = \alpha_h \cdot \mathbf{M}_{spatial}^{(h)} + (1 - \alpha_h) \cdot \mathbf{1},
+\end{equation}
+where $h$ indexes the attention head and $\mathbf{1}$ denotes an all-ones matrix with matching dimensions. The fused attention $\mathbf{A}_{fused} \in \mathbb{R}^{N \times N}$ is obtained by integrating semantic attention with the gated spatial mask:
+\begin{equation}
+\mathbf{A}_{fused} = \text{Normalize}(\mathbf{A}_{sem} \odot \mathbf{M}_{effective}),
+\end{equation}
+
+Refined object features $\mathbf{F}_{obj}^{*} \in \mathbb{R}^{N \times D}$ are then computed through residual feature aggregation using a learnable projection matrix $\mathbf{W}_O \in \mathbb{R}^{D \times D}$:
+\begin{equation}
+\mathbf{F}_{obj}^{*}
+=
+\mathbf{A}_{fused}\mathbf{V}\mathbf{W}_O
++
+\mathbf{F}_{obj}.
+\end{equation}
+
+\subsection{Geometry-Aware Auxiliary Task Head}
+
+GATH performs deep geometric retention by regularizing intermediate LLM representations to preserve spatial topology against semantic domination during deep feature propagation. Unlike conventional auxiliary objectives that attach prediction heads to {the final LLM layers}, GATH operates on intermediate layers, motivated by prior observations that transformer layers balance general representations and task specialization differently~\cite{liu2019linguistic,voita2019bottom}. By regressing full 3D bounding boxes from intermediate representations and aggregating supervision across both tokens and layers via learnable weights, {GATH encourages spatially related objects to remain geometrically consistent in the latent representation space}. The module is active only during training and discarded at inference, introducing no additional computational overhead.
+
+As shown in Fig.~\ref{fig:gath}, GATH extracts hidden representations from selected LLM layers and aggregates them into object-level geometric features. We divide the LLM into four depth intervals~\cite{yu&lee2025} according to their representation characteristics. Early alignment layers primarily perform modality alignment, where geometric and semantic representations remain fragmented and insufficiently integrated across modalities~\cite{chang2026}. Shallow fusion layers begin to integrate multimodal information, but their representations remain unstable with limited geometric consistency. Deep specialization layers are increasingly dominated by linguistic abstraction due to representation compression~\cite{chang2026}, causing geometric information to be progressively suppressed. Prior work also reports cross-modal optimization conflicts~\cite{hao2026} in these deeper layers, making direct coordinate supervision less effective and less compatible with the primary language modeling objective.
+
+In contrast, intermediate layers achieve sufficient cross-modal integration while retaining geometric information. This trade-off offers a favorable balance between preserving spatial geometry and maintaining language task performance, motivating our choice of intermediate {fusion} layers as the feature extraction source for GATH.
+
+
+% We employ a dual aggregation strategy across horizontal and vertical dimensions to extract object-level representations from these intermediate layers.
+
+Based on this observation, we employ a dual aggregation strategy across horizontal and vertical dimensions to extract object-level geometric representations from intermediate layers. Let $\mathcal{L}_{\text{mid}} = \{l_1, l_2, \dots, l_K\}$ denote the set of intermediate LLM layers, where $K = |\mathcal{L}_{\text{mid}}|$. For horizontal aggregation, consecutive tokens associated with the same object are pooled into an object-level representation $\mathbf{h}_{\text{obj}}^{(l, i)} \in \mathbb{R}^{D}$:
+\begin{equation}
+\mathbf{h}_{\text{obj}}^{(l, i)} = \frac{1}{|\mathcal{T}_i|} \sum_{t \in \mathcal{T}_i} \mathbf{H}^{(l)}_{t},
+\end{equation}
+where $\mathcal{T}_i$ denotes the set of token indices associated with object $i$, and $\mathbf{H}^{(l)}_{t} \in \mathbb{R}^{D}$ is the $t$-th row of the hidden state matrix $\mathbf{H}^{(l)}$.
+
+For vertical aggregation, since hidden states from different layers preserve geometric information with varying abstraction levels, we introduce learnable layer weights $\mathbf{w}_{\text{layer}} \in \mathbb{R}^{K}$ to adaptively aggregate representations across layers:
+\begin{align}
+\mathbf{w}_{\text{norm}} &= \text{Softmax}(\mathbf{w}_{\text{layer}}),\\
+\mathbf{h}_{\text{geo}}^{(i)} &= \sum_{l} \mathbf{w}_{\text{norm}}^{(l)} \cdot \mathbf{h}_{\text{obj}}^{(l, i)},
+\end{align}
+where $w_{\text{norm}}^{(l)} \in (0,1)$ denotes the normalized weight for layer $l$, and $\mathbf{h}_{\text{geo}}^{(i)}$ denotes the aggregated geometric representation for object $i$. This adaptive weighting strategy enables the model to emphasize layers that better preserve geometric structure.
+
+Finally, we employ an MLP-based regression head to predict the 3D bounding box parameters of each object:
+\begin{equation}
+\hat{\mathbf{c}}^{(i)} = \text{MLP}_{\text{coord}}(\mathbf{h}_{\text{geo}}^{(i)}) \in \mathbb{R}^6
+\end{equation}
+where $\hat{\mathbf{c}}^{(i)}=[\hat{x},\hat{y},\hat{z},\hat{w},\hat{h},\hat{l}]$ denotes the predicted 3D object center coordinates and bounding box dimensions. The predicted coordinates are supervised against ground-truth annotations $\mathbf{c}^{(i)} \in \mathbb{R}^{6}$ using a {Mean Squared Error (MSE)} loss~\cite{mseloss}. This auxiliary supervision propagates geometric gradients back through the model, encouraging the visual projector and intermediate LLM layers to retain {geometric} information that would otherwise be progressively suppressed during language modeling  optimization. This collaborative design supports the closed-loop system of hierarchical spatial regulation. GATH provides geometry-aware supervisory signals only during training and is not involved during inference, thereby introducing no additional inference overhead.
+
+\section{Experiments}
+
+\begin{table*}[tbp]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.8pt}
+\caption{\textbf{Unified Performance Comparison on Multimodal Scene Understanding.}}
+\label{tab:unified_results}
+\resizebox{0.9\textwidth}{!}{
+\begin{tabularx}{\textwidth}{@{}X *{11}{c}@{}}
+\toprule
+\multirow{2}{*}{\textbf{Method}} 
+& \multicolumn{2}{c}{\textbf{ScanRefer}} 
+& \multicolumn{2}{c}{\textbf{Multi3DRefer}} 
+& \multicolumn{5}{c}{\textbf{ScanQA}} 
+& \multicolumn{2}{c}{\textbf{Scan2Cap}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-10} \cmidrule(lr){11-12}
+& Acc@0.25 & Acc@0.5 
+& F1@0.25 & F1@0.5 
+& B-1 & B-4 & METEOR & ROUGE & CIDEr 
+& C@0.5 & B-4@0.5 \\
+\midrule
+
+\textit{Expert Models} \\
+
+ScanRefer~\cite{scanrefer2020}
+& 37.3 & 24.3 & - & - & - & - & - & - & - & - & - \\
+
+3DJCG~\cite{3djcg2022}
+& 49.6 & 37.3 & - & 26.6 & - & - & - & - & - & - & - \\
+
+ScanQA~\cite{scanqa2022}
+& - & - & - & - & 30.2 & 10.1 & 13.1 & 33.3 & 64.9 & 49.5 & 31.0 \\
+
+3D-VLP~\cite{3dvlp2023}
+& 51.4 & 39.5 & - & - & 30.5 & 11.1 & 13.5 & 34.5 & 67.0 & 54.9 & 32.3 \\
+
+M3DRef-CLIP~\cite{multi3drefer2023}
+& 51.9 & 44.7 & 42.8 & 38.4 & - & - & - & - & - & - & - \\
+
+3D-VisTA~\cite{3dvista2023}
+& 50.6 & 45.5 & - & - & - & - & - & - & - & - & - \\
+
+ConcreteNet~\cite{ConcreteNet2023}
+& 50.6 & 46.5 & - & - & - & - & - & - & - & - & - \\
+
+PQ3D~\cite{pq3d2024}
+& - & - & - & - & 43.0 & - & 17.8 & - & 87.8 & - & - \\
+
+DDPA-3DVG~\cite{DDPA-3DVG2025}
+& 55.3 & 43.3 & - & - & - & - & - & - & - & - & - \\
+
+H-COST~\cite{H-COST2025}
+& - & - & - & 47.9 & - & - & - & - & - & - & - \\
+
+\midrule
+\textit{LLM-based Models} \\
+
+3D-LLM~\cite{3dllm2023}
+& 30.3 & - & - & - & 39.3 & 12.0 & 14.5 & 35.7 & 69.4 & - & - \\
+
+Chat-3D~\cite{chat3d2023}
+& - & - & - & - & 29.1 & 6.4 & 11.9 & 28.5 & 53.2 & - & - \\
+
+LAMM~\cite{lamm2023}
+& - & - & - & - & - & 5.8 & - & - & 42.4 & - & - \\
+
+ZSVG3D~\cite{zsvg3d2024}
+& 36.4 & 32.7 & - & - & - & - & - & - & - & - & - \\
+
+Grounded 3D-LLM~\cite{grounded3dllm2024}
+& 48.6 & 44.0 & 44.7 & 40.8 & - & - & - & - & - & - & - \\
+
+LL3DA~\cite{ll3da2024}
+& - & - & - & - & - & 13.5 & 15.9 & 37.3 & 76.8 & 65.2 & 36.8 \\
+
+LEO~\cite{leo2024}
+& - & - & - & - & - & 11.5 & 16.2 & 39.3 & 80.0 & 68.4 & 36.9 \\
+
+Scene-LLM~\cite{scenellm2024}
+& - & - & - & - & 43.6 & 12.0 & 16.6 & 40.0 & 80.0 & - & - \\
+
+Chat-Scene~\cite{chatscene2024}
+& 55.5 & 50.2 & 57.1 & 52.4 & 43.2 & 14.3 & 18.0 & 41.6 & 87.7 & 77.1 & 36.3 \\
+
+3D-MoRe~\cite{3D-MoRe2025}
+& - & - & - & - & - & 14.2 & 16.1 & 37.9 & 78.9 & - & - \\
+
+\textbf{GeoAnchor3D(Ours)} 
+& \textbf{56.5} & \textbf{51.1} 
+& \textbf{59.2} & \textbf{54.6} 
+& 43.2 & 14.2 & \textbf{18.5} & \textbf{42.2} & \textbf{89.9} 
+& \textbf{77.2} & 36.1 \\
+
+\bottomrule
+\end{tabularx}
+}
+\end{table*}
+
+\subsection{Experimental Setup}
+
+\paragraph*{Datasets} We evaluate GeoAnchor3D on four datasets spanning three tasks: cross-modal grounding on ScanRefer~\cite{scanrefer2020} (single-object) and Multi3DRefer~\cite{multi3drefer2023} (multi-object), question answering on ScanQA~\cite{scanqa2022}, and dense captioning on Scan2Cap~\cite{scan2cap2021}. All datasets are built upon ScanNet~\cite{scannet2017}. To support instruction-conditioned evaluation across heterogeneous tasks, we convert all benchmarks into a unified instruction-following format~\cite{chatscene2024}.
+
+\paragraph*{Evaluation Metrics} Following prior work~\cite{chatscene2024}, we report Acc@$\{0.25, 0.5\}$ for ScanRefer, F1@$\{0.25, 0.5\}$ for Multi3DRefer, CIDEr@0.5 and BLEU-4@0.5 for Scan2Cap, and CIDEr together with BLEU-4 for ScanQA.
+
+\paragraph*{Implementation Details} We use Mask3D~\cite{mask3d2023} to extract 100 object proposals per scene, Uni3D~\cite{uni3d2024} to encode geometric representations, and DINOv2~\cite{dinov22023} to extract 2D appearance features. Multi-view DINOv2 features are aggregated through size-weighted averaging over spatial mask projections. A three-layer MLP projects the multimodal features into the LLM embedding space. We adopt Vicuna-7B-v1.5~\cite{vicuna2023} as the base LLM and fine-tune the model using LoRA~\cite{lora2022} with rank 16 for three epochs. Training is performed with a batch size of 8 and a learning rate of $5 \times 10^{-6}$ under a cosine annealing schedule on two NVIDIA RTX 3090 GPUs.
+
+
+\paragraph*{Training Objectives}
+Our model is optimized with a primary language modeling objective and two auxiliary losses. Following the instruction-tuning paradigm of Chat-Scene~\cite{chatscene2024}, the primary objective $\mathcal{L}_{\text{LM}}$ is the autoregressive next-token prediction loss over the response sequence conditioned on the instruction prefix and multimodal object tokens:
+\begin{equation}
+\mathcal{L}_{\text{LM}}(\theta) = -\sum_{i=1}^{k} \log P\left(s_i^{\text{res}} \mid s_{[1,\dots,i-1]}^{\text{res}}, s^{\text{prefix}}\right),
+\end{equation}
+where $k$ is the response length and $s^{\text{prefix}}$ denotes the instruction prefix.
+
+For IGGA, $\mathcal{L}_{\text{gate}}$ and $\mathcal{L}_{\text{LM}}$ interact through competing gradients. $\mathcal{L}_{\text{LM}}$ encourages $\alpha_h$ to adapt when the gating prior suppresses geometric features for language modeling, enabling instruction-specific gating beyond task-level assignments.
+
+For the GATH module, coordinate regression is supervised using an {MSE} loss~\cite{mseloss}:
+\begin{equation}
+\mathcal{L}_{\text{coord}} = \frac{1}{|\mathcal{O}|} \sum_{i \in \mathcal{O}} \|\hat{\mathbf{c}}^{(i)} - \mathbf{c}^{(i)}\|_2^2,
+\end{equation}
+where $\mathcal{O}$ denotes {the set of} valid objects in the current batch.
+
+The overall training objective combines the above loss terms with weighting coefficients:
+\begin{equation}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{LM}} + \lambda_{\text{gate}} \mathcal{L}_{\text{gate}} + \lambda_{\text{coord}} \mathcal{L}_{\text{coord}},
+\end{equation}
+where $\lambda_{\text{gate}}=1.0$ and $\lambda_{\text{coord}}=0.1$. 
+
+\subsection{Comparison with State-of-the-Art Methods}
+
+Table~\ref{tab:unified_results} presents a comparison on the four benchmarks across expert and LLM-based methods. Our evaluation includes prominent geometry-aware MLLMs such as Chat-Scene~\cite{chatscene2024} and the recent 3D-MoRe~\cite{3D-MoRe2025}, providing a comparison against representative paradigms in this line of work.
+
+\paragraph*{{Cross-Modal} Grounding} GeoAnchor3D achieves 56.5\% Acc@0.25 and 51.1\% Acc@0.5 on ScanRefer, and 59.2\% F1@0.25 and 54.6\% F1@0.5 on Multi3DRefer, surpassing Chat-Scene~\cite{chatscene2024} by 1.0/0.9 and 2.1/2.2, respectively. The larger gains on Multi3DRefer reflect its stronger reliance on multi-object spatial relation reasoning. We attribute these improvements to two synergistic mechanisms. IGGA strengthens geometry-aware attention for spatial reasoning instructions, enabling the model to leverage neighboring objects as spatial anchors. Meanwhile, GATH preserves spatial information throughout deep representations, mitigating the progressive geometric degradation that impairs precise localization.
+
+\paragraph*{Question Answering and Dense Captioning} GeoAnchor3D achieves a CIDEr score of 89.9 on ScanQA and 77.2 CIDEr@0.5 on Scan2Cap, outperforming Chat-Scene across all primary metrics. These results indicate that the proposed modules also benefit semantic-centric tasks. IGGA suppresses unnecessary geometric modulation for attribute-oriented {instructions} ({mean gating coefficient} $\bar{\alpha} \approx 0.08$, see Sec.~\ref{sec:igga_ablation}), preventing spatial noise from interfering with semantic understanding. Meanwhile, GATH preserves latent spatial context such as object size and layout, improving holistic scene descriptions. We observe slightly lower BLEU-4 scores on ScanQA (14.2 vs.\ 14.3) and Scan2Cap (36.1 vs.\ 36.3), which we attribute to increased linguistic diversity. Spatially grounded descriptions may reduce exact n-gram overlap while improving overall semantic quality, as reflected by the CIDEr improvements.
+
+\begin{table*}[tbp]
+\centering
+\footnotesize  
+\setlength{\tabcolsep}{3.8pt}
+\caption{\textbf{Ablation Study of IGGA and GATH on Multimodal Scene Understanding Tasks.}}
+\label{tab:final_ablation}
+\resizebox{0.9\textwidth}{!}{
+\begin{tabularx}{\textwidth}{@{} *{8}{>{\centering\arraybackslash}X} @{}}
+\toprule
+\textbf{IGGA} & \textbf{GATH} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{Multi3DRef}} & \textbf{ScanQA} & \textbf{Scan2Cap} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-7} \cmidrule(lr){8-8}
+  &   & Acc@0.25 & Acc@0.5 & F1@0.25 & F1@0.5 & CIDEr & CIDEr@0.5 \\
+\midrule
+\xmark & \xmark & 55.5 & 50.2 & 57.1 & 52.4 & 87.7 & 77.1 \\
+\cmark & \xmark & 56.3 & 50.8 & 58.7 & 54.2 & 87.8 & 75.4 \\
+\xmark & \cmark & 55.7 & 50.4 & 58.3 & 53.7 & 89.1 & 76.8 \\
+\cmark & \cmark & \textbf{56.5} & \textbf{51.1} & \textbf{59.2} & \textbf{54.6} & \textbf{89.9} & \textbf{77.2} \\
+\bottomrule
+\end{tabularx}
+}
+\end{table*}
+
+\subsection{Ablation Study}
+
+We conduct ablation studies to isolate the contributions of individual modules and design choices. Per-component ablations are conducted on ScanRefer and ScanQA, which respectively represent geometry-intensive grounding and semantic-oriented question answering, jointly reflecting model performance across heterogeneous task demands.
+
+\begin{table}[htbp]
+\centering
+\footnotesize  
+\setlength{\tabcolsep}{3.8pt}
+\caption{\textbf{Ablation Study on Gating Design.}}
+\label{tab:gating_ablation}
+\resizebox{0.49\textwidth}{!}{
+\begin{tabularx}{\linewidth}{@{}X *{4}{c}@{}}
+\toprule
+\multirow{2}{*}{Gating Strategy} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{ScanQA}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+ & Acc@0.25 & Acc@0.50 & B-4 & CIDEr \\
+\midrule
+Fixed $\alpha_h = 0.5$  & 55.6 & 50.3 & 13.5 & 86.3 \\
+\textbf{Learnable $\alpha_h$}  & \textbf{56.0} & \textbf{50.7} & \textbf{14.0} & \textbf{87.9} \\
+\bottomrule
+\end{tabularx}
+}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\footnotesize  
+\setlength{\tabcolsep}{2.8pt}
+\caption{\textbf{Ablation Study on Feature Extraction Layers for GATH.}}
+\label{tab:layers_ablation}
+\resizebox{0.49\textwidth}{!}{
+\begin{tabularx}{\linewidth}{@{}X *{4}{c}@{}}
+\toprule
+\multirow{2}{*}{Layer Interval} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{ScanQA}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+ & Acc@0.25 & Acc@0.50 & B-4 & CIDEr \\
+\midrule
+1-8 (Early)         & 55.9 & 50.5 & \textbf{14.2} & 86.9 \\
+9-16 (Shallow)         & 56.0 & 50.4 & 13.3 & 87.2 \\
+\textbf{17-24 (Intermediate)}  & \textbf{56.0} & \textbf{50.7} & 14.0 & \textbf{87.9} \\
+25-32 (Deep)   & 55.7 & 50.3 & 13.6 & 87.7 \\
+\bottomrule
+\end{tabularx}
+}
+\end{table}
+
+\paragraph*{Module Contributions} As shown in Table~\ref{tab:final_ablation}, both modules consistently improve performance over the baseline. IGGA alone raises ScanRefer Acc@0.5 from 50.2\% to 50.8\% and Multi3DRefer F1@0.5 from 52.4\% to 54.2\%, with the larger improvement on Multi3DRefer (+1.8 vs.\ +0.6) highlighting its effectiveness for multi-object spatial reasoning. GATH alone improves grounding performance and yields a notable 1.4-point CIDEr gain on ScanQA, indicating that preserved geometric context also benefits semantic understanding. Integrating both modules achieves the strongest overall performance across all benchmarks, {validating the effectiveness of the proposed hierarchical spatial regulation}. For example, Scan2Cap CIDEr@0.5 increases from 75.4 (IGGA only) and 76.8 (GATH only) to 77.2, demonstrating the complementary effects of adaptive {geometric} routing and deep geometric retention {within this coupled framework}.
+
+\paragraph*{Gating Mechanism Design}
+\label{sec:igga_ablation}
+Having established the complementary effects of the two modules, we further examine whether learnable gating with task-conditioned supervision is more effective than static fusion. As reported in Table~\ref{tab:gating_ablation}, fixing $\alpha_h = 0.5$ for all $h$ achieves competitive grounding performance (Acc@0.5: 50.3\%) but causes a 1.6 point CIDEr drop on ScanQA, since static fusion uniformly injects geometric information into attribute-oriented instructions. In contrast, the learnable gating mechanism adaptively produces $\bar{\alpha} \approx 0.87$ for spatial reasoning instructions and $\bar{\alpha} \approx 0.08$ for attribute-oriented instructions, enabling task-adaptive modality regulation without manual intervention. This strategy offers clear advantages over alternative adaptive fusions by isolating spatial modulation within specialized attention heads to mitigate the risk of distorting the underlying representations.
+
+\begin{table}[htbp]
+\centering
+\footnotesize  
+\setlength{\tabcolsep}{3.8pt}
+\caption{\textbf{Ablation Study on Feature Aggregation Strategy.}}
+\label{tab:aggregation_ablation}
+\resizebox{0.49\textwidth}{!}{
+\begin{tabularx}{\linewidth}{@{} X X *{4}{c} @{}}
+\toprule
+\multicolumn{2}{c}{\textbf{Aggregation Strategy}} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{ScanQA}} \\
+\cmidrule(lr){1-2} \cmidrule(lr){3-4} \cmidrule(lr){5-6}
+Token-wise & Layer-wise & Acc@0.25 & Acc@0.50 & B-4 & CIDEr \\
+\midrule
+MaxPool & AvgPool      & 55.9 & 50.4 & 14.1 & 87.5 \\
+MaxPool & Last Layer   & 55.6 & 50.3 & \textbf{14.4} & 87.0 \\
+Last Token & AvgPool   & 55.8 & 50.5 & \textbf{14.4} & 87.4 \\
+Last Token & Last Layer & 55.2 & 50.1 & 14.2 & 86.5 \\
+\textbf{AvgPool} & \textbf{Learnable}
+  & \textbf{56.0} & \textbf{50.7} & 14.0 & \textbf{87.9} \\
+\bottomrule
+\end{tabularx}
+}
+\end{table}
+
+\paragraph*{Feature Extraction Depth} Beyond the gating design, the effectiveness of GATH also depends on which LLM layers are selected for representation extraction. Following~\cite{lbt2025}, we partition the 32-layer LLaMA into four depth intervals: early alignment (1--8), shallow fusion (9--16), intermediate fusion (17--24), and deep specialization (25--32). As shown in Table~\ref{tab:layers_ablation}, the results exhibit an inverted-U trend. Early layers underperform due to insufficient cross-modal integration, whereas deep layers suffer from language-centric representation compression. The intermediate interval achieves the most favorable trade-off between geometric preservation and semantic abstraction, consistent with prior findings~\cite{liu2019linguistic,voita2019bottom}. In contrast, layers 25--32 produce the weakest grounding performance, suggesting that direct supervision on deep representations becomes less compatible with the language modeling objective.
+
+\begin{figure*}[tbp]
+    \centering
+    \captionsetup[subfigure]{font=scriptsize}
+
+    \subfloat[3D Scene Topology.]{%
+        \includegraphics[width=0.30\textwidth]{imgs/scene0050.pdf}%
+        \label{fig:vis_scene_spatial}%
+    }\hfill
+    \subfloat[Top-K Attention Distribution ($\bar{\alpha} \approx 0.89$).]{%
+        \includegraphics[width=0.28\textwidth]{imgs/IGGA_1.pdf}%
+        \label{fig:vis_bar_spatial}%
+    }\hfill
+    \subfloat[Attention Sub-Matrix Heatmap.]{%
+        \includegraphics[width=0.31\textwidth]{imgs/IGGA_2.pdf}%
+        \label{fig:vis_heatmap_spatial}%
+    }
+
+    \caption{\textbf{Visualization of IGGA attention dynamics in {geometry-intensive} tasks.}
+    (a) Raw 3D scene point cloud.
+    (b) Fused attention with high gating ($\bar{\alpha} \approx 0.89$), emphasizing spatially relevant objects.
+    (c) Strong and localized {object-aware attention} between the target and its neighboring objects.}
+    \label{fig:igga_spatial}
+\end{figure*}
+
+\setlength{\dblfloatsep}{2pt}
+
+\begin{figure*}[tbp]
+    \centering
+    \captionsetup[subfigure]{font=scriptsize}
+
+    \subfloat[3D Scene Topology.]{%
+        \includegraphics[width=0.30\textwidth]{imgs/scene0050.pdf}%
+        \label{fig:vis_scene_semantic}%
+    }\hfill
+    \subfloat[Top-K Attention Distribution ($\bar{\alpha} \approx 0.01$).]{%
+        \includegraphics[width=0.28\textwidth]{imgs/IGGA_3.pdf}%
+        \label{fig:vis_bar_semantic}%
+    }\hfill
+    \subfloat[Attention Sub-Matrix Heatmap.]{%
+        \includegraphics[width=0.31\textwidth]{imgs/IGGA_4.pdf}%
+        \label{fig:vis_heatmap_semantic}%
+    }
+
+    \caption{\textbf{Visualization of IGGA attention dynamics in {semantic-oriented} tasks.}
+    (a) Raw 3D scene point cloud.
+    (b) Fused attention with near-zero gating ($\bar{\alpha} \approx 0.01$), indicating suppressed spatial contribution.
+    (c) Weak and nearly uniform attention between the target and its neighboring objects.}
+    \label{fig:igga_semantic}
+\end{figure*}
+
+\setlength{\textfloatsep}{2pt}
+
+% \paragraph*{Regression Target} With the extraction depth determined, we further investigate which geometric targets should be supervised. Table~\ref{tab:regression_ablation} compares center-only regression $(x, y, z)$ with full bounding box regression $(x, y, z, w, h, l)$. Experimental results demonstrate that full bounding box regression consistently outperforms center-only supervision, including a 1.7 point CIDEr improvement on ScanQA, suggesting that object scale information contributes to holistic scene understanding. For example, a ``large table'' and a ``small side table'' correspond to different semantic contexts, which can influence downstream question answering.
+
+% \begin{table}[htbp]
+% \centering
+% \scriptsize  
+% \setlength{\tabcolsep}{3.8pt}
+% \caption{\textbf{Ablation Study on Coordinate Regression Target.}}
+% \label{tab:regression_ablation}
+% \begin{tabularx}{\linewidth}{@{}X *{4}{c}@{}}
+% \toprule
+% \multirow{2}{*}{Regression Target} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{ScanQA}} \\
+% \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+%  & Acc@0.25 & Acc@0.50 & B-4 & CIDEr \\
+% \midrule
+% Center Only ($x, y, z$)
+%   & \textbf{56.0} & 50.5 & 13.6 & 86.2 \\
+% \textbf{Full Box ($x, y, z, w, h, l$)}
+%   & \textbf{56.0} & \textbf{50.7} & \textbf{14.0} & \textbf{87.9} \\
+% \bottomrule
+% \end{tabularx}
+% \end{table}
+
+\paragraph*{Aggregation Strategy} Finally, we ablate the aggregation strategies used in GATH to construct object-level geometric representations. {Table~\ref{tab:aggregation_ablation} reports various combinations of horizontal (token-wise) and vertical (layer-wise) aggregation strategies. Horizontally, average pooling outperforms max pooling and last-token selection by preserving distributed token information. Vertically, learnable layer weights outperform fixed strategies, indicating that different LLM layers preserve geometric information with varying fidelity and therefore benefit from adaptive weighting.}
+
+% \begin{table}[htbp]
+% \centering
+% \scriptsize  
+% \setlength{\tabcolsep}{3.8pt}
+% \caption{\textbf{Ablation Study on Feature Aggregation Strategy.} Comparison of horizontal and vertical aggregation combinations.}
+% \label{tab:aggregation_ablation}
+% \begin{tabularx}{\linewidth}{@{}X *{4}{c}@{}}
+% \toprule
+% \multirow{2}{*}{Aggregation Strategy} & \multicolumn{2}{c}{\textbf{ScanRefer}} & \multicolumn{2}{c}{\textbf{ScanQA}} \\
+% \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+%  & Acc@0.25 & Acc@0.50 & B-4 & CIDEr \\
+% \midrule
+% MaxPool + {AvgPool}      & 55.9 & 50.4 & 14.1 & 87.5 \\
+% MaxPool + Last Layer    & 55.6 & 50.3 & \textbf{14.4} & 87.0 \\
+% Last Token + {AvgPool}   & 55.8 & 50.5 & \textbf{14.4} & 87.4 \\
+% Last Token + Last Layer & 55.2 & 50.1 & 14.2 & 86.5 \\
+% \textbf{AvgPool + Learnable}
+%   & \textbf{56.0} & \textbf{50.7} & 14.0 & \textbf{87.9} \\
+% \bottomrule
+% \end{tabularx}
+% \end{table}
+
+\subsection{Visualization}
+
+We further analyze the proposed modules through qualitative visualizations of IGGA's dynamic gating behavior and GATH's {training dynamics and feature geometry.}
+% geometric representations.
+
+\paragraph*{Dynamic Gating Visualization} We compare the fused attention matrix $\mathbf{A}_{\text{fused}}$ and gating coefficients across different task types within the same scene. As shown in Fig.~\ref{fig:igga_spatial}, for a cross-modal grounding instruction (``ground the brown piano in the corner''), IGGA produces $\bar{\alpha} \approx 0.89$, activating the spatial mask. Beyond the target piano, the model attends to nearby objects such as the piano bench and storage box, suggesting that spatially adjacent objects function as geometric anchors during grounding. The attention heatmap exhibits localized and diagonally dominant patterns, indicating that spatial gating encourages structured and object-aware attention.
+
+In contrast, for a semantic instruction (``What color is the armchair?'') within the same scene, IGGA produces $\bar{\alpha} \approx 0.01$ as shown in Fig.~\ref{fig:igga_semantic}, substantially suppressing the spatial mask. The fused attention becomes nearly uniform across objects, and the heatmap loses its spatial structure. The contrast between Figs.~\ref{fig:igga_spatial} and \ref{fig:igga_semantic} demonstrates that IGGA adaptively routes modality information according to instruction semantics, activating spatial context only when required by the instruction.
+
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.7\columnwidth]{imgs/GATH_1.pdf}
+    \caption{\textbf{Training Dynamics of GATH.}
+    Auxiliary loss $\mathcal{L}_{\text{coord}}$ steadily decreases correlated with improved grounding accuracy.}
+    \label{fig:GATH_trend}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.7\columnwidth]{imgs/GATH_2.pdf}
+    \caption{\textbf{Feature Geometry of GATH.}
+    T-SNE of hidden states from intermediate 
+    layers shows clustering aligned with physical X-axis locations.}
+    \label{fig:GATH_tsne}
+\end{figure}
+
+\paragraph*{Training Dynamics and Feature Geometry}Fig.~\ref{fig:GATH_trend} tracks {the GATH auxiliary loss} $\mathcal{L}_{\text{coord}}$ alongside {validation} grounding accuracy throughout training. As {$\mathcal{L}_{\text{coord}}$} decreases, accuracy improves, suggesting that the GATH objective is complementary to the language modeling loss rather than conflicting.
+
+To examine the geometric structure preserved by GATH in deep representations, we apply t-SNE to $\mathbf{h}_{\text{geo}}^{(i)}$ {for each object $i$, computed} from intermediate layers, color-coded by physical X-axis coordinate. As shown in Fig.~\ref{fig:GATH_tsne}, after controlling for semantic category, the embedding space exhibits topological clustering that reflects the physical scene layout: objects with similar X-coordinates tend to form neighboring clusters along a smooth spatial distribution. These observations suggest that GATH helps preserve geometric structure within LLM representations, mitigating the progressive suppression of spatial signals during deep feature propagation.
+
+\section{Limitations and Future Work}
+The performance of GeoAnchor3D still depends on the quality of Mask3D-generated proposals, which may become a bottleneck in cluttered, heavily occluded, or open-world scenes containing novel object categories. Future work could address this limitation through dynamic proposal generation or open-vocabulary detection. In GATH, the selection of intermediate supervision layers is currently predefined. Developing adaptive layer selection strategies may further improve transferability across different backbones and datasets. In addition, IGGA relies on handcrafted geometric cues such as distance and angular relationships, which may not fully capture complex functional semantics. Incorporating learnable spatial embeddings or structured knowledge representations may provide richer relational reasoning capabilities. Finally, extending instruction-conditioned {geometric} routing to dynamic environments, such as egocentric video understanding, remains an important direction for future research.
+
+\section{Conclusion}
+
+In this paper, {we address two major challenges in spatial-aware MLLMs: the rigid nature of modality interaction and the progressive degradation of geometric features in deep layers. To this end, we propose GeoAnchor3D}, a framework grounded in {hierarchical spatial regulation for task-adaptive multimodal scene understanding. Unlike existing approaches that perform independent feature modulation at isolated stages, GeoAnchor3D couples instruction-conditioned geometric routing at the input level with deep geometric retention at the representation level, enabling adaptive spatial reasoning across heterogeneous tasks.} Extensive experiments demonstrate that this coupled design consistently outperforms state-of-the-art baselines across both geometry-intensive and semantic-oriented tasks, validating the effectiveness of hierarchical spatial regulation for robust 3D scene understanding.
+
+\bibliographystyle{IEEEtran}
+\bibliography{refer}
+
+\end{document}
