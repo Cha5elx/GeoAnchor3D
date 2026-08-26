@@ -201,6 +201,27 @@ class EfficiencyTracker:
         }
 
 
+def validate_model_paths(llm_path, checkpoint_path="", require_checkpoint=False):
+    """Resolve local model inputs and fail before Transformers sees bad paths."""
+    if not llm_path or not str(llm_path).strip():
+        raise ValueError(
+            "LLM path is empty. Pass a literal path or define the shell variable "
+            "used by --llm-path before launching the script."
+        )
+    llm_path = os.path.abspath(os.path.expanduser(str(llm_path)))
+    if not os.path.isdir(llm_path):
+        raise FileNotFoundError(f"LLM directory does not exist: {llm_path}")
+
+    if require_checkpoint and (not checkpoint_path or not str(checkpoint_path).strip()):
+        raise ValueError("checkpoint path is required for latency measurement")
+    checkpoint_path = str(checkpoint_path).strip() if checkpoint_path else ""
+    if checkpoint_path:
+        checkpoint_path = os.path.abspath(os.path.expanduser(checkpoint_path))
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(f"checkpoint file does not exist: {checkpoint_path}")
+    return llm_path, checkpoint_path
+
+
 def checkpoint_metadata(path):
     path = os.path.abspath(path) if path else ""
     return {

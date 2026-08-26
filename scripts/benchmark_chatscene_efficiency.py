@@ -20,6 +20,7 @@ from utils.efficiency import (
     checkpoint_metadata,
     count_model_parameters,
     load_checkpoint_weights,
+    validate_model_paths,
 )
 
 
@@ -108,6 +109,11 @@ def write_report(path, report):
 
 def main():
     args = parse_args()
+    args.llm_path, args.checkpoint = validate_model_paths(
+        args.llm_path,
+        args.checkpoint,
+        require_checkpoint=True,
+    )
 
     import torch
     from dataset import create_dataset, create_loader

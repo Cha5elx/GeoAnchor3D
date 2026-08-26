@@ -1,4 +1,5 @@
 import runpy
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from utils.efficiency import (
     build_efficiency_report,
     build_generation_kwargs,
     count_model_parameters,
+    validate_model_paths,
 )
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -184,6 +186,28 @@ class CompatibilityAndSchemaTest(unittest.TestCase):
         )
         self.assertFalse(report["complete"])
         self.assertEqual(report["status"], "failed")
+
+
+class ModelPathValidationTest(unittest.TestCase):
+    def test_rejects_empty_llm_path_before_transformers_load(self):
+        with self.assertRaisesRegex(ValueError, "LLM path is empty"):
+            validate_model_paths("")
+
+    def test_rejects_missing_llm_directory(self):
+        with self.assertRaisesRegex(FileNotFoundError, "LLM directory does not exist"):
+            validate_model_paths("definitely/missing/llm")
+
+    def test_resolves_existing_llm_and_checkpoint_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint = Path(temp_dir) / "checkpoint.pth"
+            checkpoint.touch()
+            llm_path, checkpoint_path = validate_model_paths(
+                temp_dir,
+                checkpoint,
+                require_checkpoint=True,
+            )
+        self.assertEqual(llm_path, str(Path(temp_dir).resolve()))
+        self.assertEqual(checkpoint_path, str(checkpoint.resolve()))
 
 
 if __name__ == "__main__":

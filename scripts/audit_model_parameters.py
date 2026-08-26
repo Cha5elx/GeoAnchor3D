@@ -17,6 +17,7 @@ from utils.efficiency import (
     checkpoint_metadata,
     count_model_parameters,
     load_checkpoint_weights,
+    validate_model_paths,
 )
 
 
@@ -54,6 +55,7 @@ def load_config(args):
 
 def main():
     args = parse_args()
+    args.llm_path, args.checkpoint = validate_model_paths(args.llm_path, args.checkpoint)
     config = load_config(args)
 
     import torch
