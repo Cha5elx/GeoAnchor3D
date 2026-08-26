@@ -30,6 +30,12 @@ def parse_args():
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--attn-implementation",
+        choices=("eager", "sdpa", "flash_attention_2"),
+        default="flash_attention_2",
+        help="Keep flash_attention_2 for measurements comparable with original Chat-Scene inference.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--warmup-batches", type=int, default=20)
     parser.add_argument("--timed-samples", type=int, default=200)
@@ -59,6 +65,7 @@ def load_config(args):
     config.val_tag = "scanrefer"
     config.batch_size = 1
     config.model.llama_model_path = args.llm_path
+    config.model.attn_implementation = args.attn_implementation
     config.pretrained_path = args.checkpoint
     config.device = args.device
     config.auto_resume = False
@@ -192,6 +199,7 @@ def main():
         },
         dtype=generation_dtype,
         parameter_dtypes=parameter_dtypes,
+        attention_implementation=args.attn_implementation,
         llm_path=os.path.abspath(args.llm_path),
         checkpoint=checkpoint_metadata(args.checkpoint),
         checkpoint_load=checkpoint_load,

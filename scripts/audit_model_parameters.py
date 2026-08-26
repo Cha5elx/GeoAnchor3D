@@ -27,6 +27,12 @@ def parse_args():
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--checkpoint", default="")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--attn-implementation",
+        choices=("eager", "sdpa", "flash_attention_2"),
+        default="eager",
+        help="Parameter counts do not depend on the attention kernel; eager avoids FlashAttention dependencies.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--config-options",
@@ -46,6 +52,7 @@ def load_config(args):
         config = Config.merge_list(config, args.config_options)
         config = eval_dict_leaf(config)
     config.model.llama_model_path = args.llm_path
+    config.model.attn_implementation = args.attn_implementation
     config.device = args.device
     config.pretrained_path = args.checkpoint
     config.auto_resume = False
@@ -74,6 +81,7 @@ def main():
         "model_class": "models.chat3d_origin.Chat3D",
         "device": str(device),
         "dtype": dtypes,
+        "attention_implementation": args.attn_implementation,
         "llm_path": os.path.abspath(args.llm_path),
         "checkpoint": checkpoint_metadata(args.checkpoint),
         "checkpoint_load": checkpoint_load,

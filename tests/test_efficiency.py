@@ -146,6 +146,7 @@ class CompatibilityAndSchemaTest(unittest.TestCase):
         self.assertEqual(config["efficiency_max_timed_samples"], 0)
         self.assertEqual(config["efficiency_fixed_new_tokens"], 0)
         self.assertEqual(config["num_beams"], 5)
+        self.assertEqual(config["model"]["attn_implementation"], "flash_attention_2")
 
     def test_report_contains_parameters_latency_generation_and_hardware(self):
         tracker = EfficiencyTracker(warmup_batches=0, max_timed_samples=1)
@@ -186,6 +187,11 @@ class CompatibilityAndSchemaTest(unittest.TestCase):
         )
         self.assertFalse(report["complete"])
         self.assertEqual(report["status"], "failed")
+
+    def test_custom_llama_declares_old_and_new_flash_attention_capabilities(self):
+        source = (PROJECT_ROOT / "models" / "modeling_llama.py").read_text(encoding="utf-8")
+        self.assertIn("_supports_flash_attn = True", source)
+        self.assertIn("_supports_flash_attn_2 = True", source)
 
 
 class ModelPathValidationTest(unittest.TestCase):

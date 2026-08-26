@@ -264,6 +264,7 @@ model = dict(
     scene_dim=256,
     pos_dim=128,
     encoder_num_layers=3,
+    attn_implementation="flash_attention_2",
     low_resource=False,
     system_path="prompts/system.txt",
     instruction_path="prompts/instruction.txt",

@@ -45,6 +45,7 @@ class Chat3D(nn.Module):
         super().__init__()
         self.config = config
         llama_model_path = config.model.llama_model_path
+        self.attn_implementation = config.model.get("attn_implementation", "flash_attention_2")
         self.low_resource = config.model.low_resource
         self.max_txt_len = config.model.max_txt_len
         self.end_sym = config.model.end_sym
@@ -79,13 +80,13 @@ class Chat3D(nn.Module):
                     torch_dtype=torch.bfloat16,
                     load_in_8bit=True,
                     device_map="auto",
-                    attn_implementation="flash_attention_2"
+                    attn_implementation=self.attn_implementation
                 )
             else:
                 self.llama_model = LlamaForCausalLM.from_pretrained(
                     llama_model_path,
                     torch_dtype=torch.bfloat16,
-                    attn_implementation="flash_attention_2"
+                    attn_implementation=self.attn_implementation
                 )
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
             # self.llama_model = self.llama_model.to("cuda")
