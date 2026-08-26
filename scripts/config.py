@@ -338,6 +338,14 @@ scheduler = dict(sched="cosine", epochs=3, min_lr_multi=0.01, warmup_epochs=0.1)
 
 evaluate = False
 
+# Opt-in efficiency measurement. Existing training/validation ignores these
+# values unless a standalone efficiency script is launched with an output path.
+eval_efficiency_output = ""
+efficiency_warmup_batches = 20
+efficiency_max_timed_samples = 0
+efficiency_fixed_new_tokens = 0
+num_beams = 5
+
 # ========================= wandb ==========================
 wandb = dict(
     enable=True,

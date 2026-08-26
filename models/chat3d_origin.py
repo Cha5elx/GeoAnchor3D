@@ -16,6 +16,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 import contextlib
 from dataset.base_dataset import update_caption, recover_caption
+from utils.efficiency import build_generation_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +462,14 @@ class Chat3D(nn.Module):
         )
 
     def evaluate(self, scene_feat, scene_img_feat, scene_locs, scene_mask, custom_prompt, obj_ids, assigned_ids, is_eval=True, **kwargs):
+        efficiency_mode = bool(kwargs.pop("efficiency_mode", False))
+        return_generation_metadata = bool(kwargs.pop("return_generation_metadata", False))
+        generation_kwargs = build_generation_kwargs(
+            self.max_txt_len,
+            efficiency_mode=efficiency_mode,
+            fixed_new_tokens=kwargs.pop("efficiency_fixed_new_tokens", 0),
+            num_beams=kwargs.pop("num_beams", 1),
+        )
         object_embed, object_img_embed = self.encode_object_feat(scene_feat, scene_img_feat, scene_locs)
         device = object_embed.device
         batch_size, obj_num = object_embed.shape[:2]
@@ -484,6 +493,7 @@ class Chat3D(nn.Module):
             proj_scene_embed = self.scene_proj(scene_embed)
 
         output_texts = []
+        generated_token_counts = []
         p_0_embed = self.p_0_embed.to(device).unsqueeze(0)
         p_1_embed = self.p_1_embed.to(device).unsqueeze(0)
         for i in range(batch_size):
@@ -512,9 +522,8 @@ class Chat3D(nn.Module):
             with self.maybe_autocast():
                 outputs = self.llama_model.generate(
                     inputs_embeds=wrapped_embed,
-                    max_new_tokens=self.max_txt_len,
+                    **generation_kwargs,
                     # stopping_criteria=stopping_criteria,
-                    num_beams=5,
                     # do_sample=True,
                     min_length=1,
                     # top_p=0.9,
@@ -524,11 +533,15 @@ class Chat3D(nn.Module):
                     customized_mask=attention_mask
                 )
             output_token = outputs[0]
+            if return_generation_metadata:
+                generated_token_counts.append(int(output_token.numel()))
             output_text = self.llama_tokenizer.decode(output_token)
             output_text = output_text.split(self.end_sym)[0]
             output_text = output_text.replace('  ', ' ').replace(' .', '.').strip()
             output_text = recover_caption(output_text, assigned_ids[i].tolist())
             output_texts.append(output_text)
+        if return_generation_metadata:
+            return output_texts, generated_token_counts
         return output_texts
 
     def forward(self, **kwargs):
