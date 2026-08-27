@@ -30,10 +30,12 @@ model.fixed_gate_value=0.5
 
 所有命令都从仓库根目录运行。两个完整训练 setting 必须使用相同的初始 checkpoint、数据组合、学习率、batch size 和 seed。`INIT_CHECKPOINT` 推荐使用尚未训练 IGGA/GATH 消融分支的共同 Chat-Scene/stage checkpoint；不要让 scalar 从一个已收敛的 per-head Full checkpoint 开始，而另一个 setting 从不同 checkpoint 开始。
 
+两个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。`BATCH_SIZE` 表示**每卡** batch size，默认 `16` 时全局 batch size 为 `32`；如果论文原设置的全局 batch size 是 `16`，请在运行前设置 `export BATCH_SIZE=8`。
+
 ```bash
 conda activate geoanchor3d
-export CUDA_VISIBLE_DEVICES=0
-export NPROC_PER_NODE=1
+export CUDA_VISIBLE_DEVICES=0,1
+export TRAIN_NPROC_PER_NODE=2
 export LLM_PATH=/absolute/path/to/vicuna-7b-v1.5
 export INIT_CHECKPOINT=/absolute/path/to/common_initial_checkpoint.pth
 export BASELINE_CHECKPOINT=/absolute/path/to/chatscene_checkpoint.pth

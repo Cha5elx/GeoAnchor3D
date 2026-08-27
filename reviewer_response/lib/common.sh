@@ -37,6 +37,18 @@ run_ablation_training() {
     require_env TRAIN_TAG
     require_env VAL_TAG
 
+    local train_nproc="${TRAIN_NPROC_PER_NODE:-2}"
+    if [[ "$train_nproc" -ne 2 ]]; then
+        echo "Reviewer-response full training is configured for exactly 2 GPUs." >&2
+        exit 2
+    fi
+    export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+    IFS=',' read -r -a visible_devices <<< "$CUDA_VISIBLE_DEVICES"
+    if [[ "${#visible_devices[@]}" -ne 2 ]]; then
+        echo "CUDA_VISIBLE_DEVICES must contain exactly 2 GPUs, got: $CUDA_VISIBLE_DEVICES" >&2
+        exit 2
+    fi
+
     local output_dir="${OUTPUT_DIR:-$REPO_ROOT/reviewer_response/results/$experiment/$(timestamp)}"
     local gate_loss_weight="${GATE_LOSS_WEIGHT:-1.0}"
     if [[ "$gate_supervision" == "False" ]]; then
@@ -44,7 +56,7 @@ run_ablation_training() {
     fi
     mkdir -p "$output_dir"
 
-    run_python tasks/train.py scripts/config.py \
+    NPROC_PER_NODE="$train_nproc" run_python tasks/train.py scripts/config.py \
         output_dir "$output_dir" \
         scheduler.epochs "${EPOCHS:-3}" \
         optimizer.lr "${LEARNING_RATE:-5e-6}" \
@@ -52,7 +64,7 @@ run_ablation_training() {
         evaluate False \
         auto_resume False \
         wandb.enable "${ENABLE_WANDB:-False}" \
-        gpu_num "${NPROC_PER_NODE:-1}" \
+        gpu_num "$train_nproc" \
         batch_size "${BATCH_SIZE:-16}" \
         train_tag "$TRAIN_TAG" \
         val_tag "$VAL_TAG" \
