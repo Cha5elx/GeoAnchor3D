@@ -66,7 +66,7 @@ run_ablation_training() {
         auto_resume False \
         wandb.enable "${ENABLE_WANDB:-False}" \
         gpu_num "$train_nproc" \
-        batch_size "${BATCH_SIZE:-16}" \
+        batch_size 8 \
         train_tag "$TRAIN_TAG" \
         val_tag "$VAL_TAG" \
         model.llama_model_path "$LLM_PATH" \

@@ -31,7 +31,7 @@ model.fixed_gate_value=0.5
 
 所有命令都从仓库根目录运行。三个完整训练 setting 必须使用相同的初始 checkpoint、数据组合、学习率、batch size 和 seed。当前统一使用 Chat-Scene 官方 checkpoint 作为 `INIT_CHECKPOINT` 和 `BASELINE_CHECKPOINT`。
 
-三个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。`BATCH_SIZE` 表示**每卡** batch size，默认 `16` 时全局 batch size 为 `32`；如果论文原设置的全局 batch size 是 `16`，请在运行前设置 `export BATCH_SIZE=8`。
+三个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。每卡 batch size 固定为 `8`，双卡全局 batch size 为 `16`。训练入口不再读取外部 `BATCH_SIZE`，避免旧的 `BATCH_SIZE=16` 环境变量导致 OOM。
 
 ```bash
 conda activate geoanchor3d
