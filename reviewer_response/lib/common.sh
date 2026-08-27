@@ -70,6 +70,7 @@ run_ablation_training() {
         train_tag "$TRAIN_TAG" \
         val_tag "$VAL_TAG" \
         model.llama_model_path "$LLM_PATH" \
+        model.add_scene_token False \
         model.max_obj_num "${MAX_OBJ_NUM:-100}" \
         model.gate_granularity "$granularity" \
         model.alpha_ablation_mode 0 \
