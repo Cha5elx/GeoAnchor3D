@@ -25,6 +25,7 @@ import contextlib
 from dataset.base_dataset import update_caption, recover_caption
 
 from .twin_transformer import TwinTransformer
+from utils.efficiency import build_generation_kwargs
 
 # import visualize_features
 
@@ -59,8 +60,9 @@ class SpatialRelationAttention(nn.Module):
             num_heads (int): 注意力头数
             instr_dim (int): 指令文本特征维度
     """
-    def __init__(self, feat_dim=1024, pos_dim=5, num_heads=8, 
-                 spatial_multihead=True, instr_dim=4096):
+    def __init__(self, feat_dim=1024, pos_dim=5, num_heads=8,
+                 spatial_multihead=True, instr_dim=4096,
+                 gate_granularity="per_head", fixed_gate_value=0.5):
         """
         Args:
             feat_dim (int): 物体特征维度
@@ -73,6 +75,15 @@ class SpatialRelationAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = feat_dim // num_heads
         self.spatial_multihead = spatial_multihead
+        if gate_granularity not in {"per_head", "scalar"}:
+            raise ValueError(
+                "gate_granularity must be 'per_head' or 'scalar', "
+                f"got {gate_granularity!r}"
+            )
+        if not 0.0 <= float(fixed_gate_value) <= 1.0:
+            raise ValueError("fixed_gate_value must be in [0, 1]")
+        self.gate_granularity = gate_granularity
+        self.fixed_gate_value = float(fixed_gate_value)
 
 
         # ---- 标准 Attention QKV ----
@@ -94,10 +105,11 @@ class SpatialRelationAttention(nn.Module):
 
         # ---- [保留代码2] 门控生成网络 (Gate Network) ----
         # 用于判断当前指令是否需要空间关系参与
+        gate_output_dim = num_heads if gate_granularity == "per_head" else 1
         self.gate_net = nn.Sequential(
             nn.Linear(instr_dim, feat_dim // 4),
             nn.ReLU(),
-            nn.Linear(feat_dim // 4, num_heads), 
+            nn.Linear(feat_dim // 4, gate_output_dim),
             nn.Sigmoid() # 输出 0~1 的门控值
         )
         
@@ -171,7 +183,10 @@ class SpatialRelationAttention(nn.Module):
             gate_values = self.gate_net(instr_embeds) 
         elif alpha_ablation_mode == 1:
             # 模式1: 固定 alpha = 0.5
-            gate_values = torch.full((B, self.num_heads), 1.0, device=objects.device)
+            gate_values = torch.full(
+                (B, 1), self.fixed_gate_value,
+                device=objects.device, dtype=objects.dtype
+            )
         elif alpha_ablation_mode == 2:
             # 模式2: 根据任务类型硬编码
             # task_type: 0=QA, 1=ScanRefer, 3=Multi3DRefer, 4=Scan2Cap
@@ -227,6 +242,7 @@ class Chat3D(nn.Module):
         super().__init__()
         self.config = config
         llama_model_path = config.model.llama_model_path
+        self.attn_implementation = config.model.get("attn_implementation", "flash_attention_2")
         self.low_resource = config.model.low_resource
         self.max_txt_len = config.model.max_txt_len
         self.end_sym = config.model.end_sym
@@ -256,12 +272,16 @@ class Chat3D(nn.Module):
         self.use_semantic_distillation = getattr(config.model, 'use_semantic_distillation', False)
         # 门控监督开关
         self.use_gate_supervision = getattr(config.model, 'use_gate_supervision', True)
+        self.gate_loss_weight = float(getattr(config.model, 'gate_loss_weight', 1.0))
+        self.coord_loss_weight = float(getattr(config.model, 'coord_loss_weight', 0.1))
         
         # [消融实验] Alpha 值控制模式
         # 0: 原始模式 (使用门控网络动态计算)
         # 1: 固定 alpha = 0.5
         # 2: 根据任务类型硬编码 (视觉定位 alpha=1, 问答 alpha=0)
-        self.alpha_ablation_mode = 1
+        self.alpha_ablation_mode = int(getattr(config.model, 'alpha_ablation_mode', 0))
+        if self.alpha_ablation_mode not in {0, 1, 2}:
+            raise ValueError("alpha_ablation_mode must be 0, 1, or 2")
         
         # [消融实验] 坐标回归模式
         # 0: 原始模式 (回归中心点+长宽高，6个值)
@@ -299,13 +319,13 @@ class Chat3D(nn.Module):
                     torch_dtype=torch.bfloat16,
                     load_in_8bit=True,
                     device_map="auto",
-                    attn_implementation="flash_attention_2"
+                    attn_implementation=self.attn_implementation
                 )
             else:
                 self.llama_model = LlamaForCausalLM.from_pretrained(
                     llama_model_path,
                     torch_dtype=torch.bfloat16,
-                    attn_implementation="flash_attention_2"
+                    attn_implementation=self.attn_implementation
                 )
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
             # self.llama_model = self.llama_model.to("cuda")
@@ -453,7 +473,9 @@ class Chat3D(nn.Module):
                 pos_dim=5,  # [sin(θ_h), cos(θ_h), sin(θ_v), cos(θ_v), d_ij]
                 num_heads=8,
                 spatial_multihead=True,
-                instr_dim=self.llama_dim
+                instr_dim=self.llama_dim,
+                gate_granularity=getattr(config.model, 'gate_granularity', 'per_head'),
+                fixed_gate_value=getattr(config.model, 'fixed_gate_value', 0.5)
             )
   
         # self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.scene_dim, nhead=8, dim_feedforward=2048, dropout=0.05, norm_first=True, batch_first=True)
@@ -1091,7 +1113,12 @@ class Chat3D(nn.Module):
         # 降低辅助任务权重的初始值，避免掩盖主任务 Loss (QA performance drop)
         # total_loss = outputs.loss + 0.7 * loss_gate + 0.2 * loss_coord + 0 * loss_align
         # total_loss = outputs.loss + 0.7 * loss_gate + 0.2 * loss_coord + 0 * loss_align
-        total_loss = outputs.loss + 1.0 * loss_gate + 0.1 * loss_coord + 0 * loss_align
+        total_loss = (
+            outputs.loss
+            + self.gate_loss_weight * loss_gate
+            + self.coord_loss_weight * loss_coord
+            + 0 * loss_align
+        )
 
         return dict(
             loss=total_loss,
@@ -1123,6 +1150,14 @@ class Chat3D(nn.Module):
             gate_values: 门控值 [bs, num_heads]
         """
 
+        efficiency_mode = bool(kwargs.pop("efficiency_mode", False))
+        return_generation_metadata = bool(kwargs.pop("return_generation_metadata", False))
+        generation_kwargs = build_generation_kwargs(
+            self.max_txt_len,
+            efficiency_mode=efficiency_mode,
+            fixed_new_tokens=kwargs.pop("efficiency_fixed_new_tokens", 0),
+            num_beams=kwargs.pop("num_beams", 1),
+        )
         object_embed, object_img_embed = self.encode_object_feat(scene_feat, scene_img_feat, scene_locs)
         device = object_embed.device
         batch_size, obj_num = object_embed.shape[:2]
@@ -1175,6 +1210,7 @@ class Chat3D(nn.Module):
         proj_scene_embed = None
         
         output_texts = []
+        generated_token_counts = []
         p_0_embed = self.p_0_embed.to(device).unsqueeze(0)
         p_1_embed = self.p_1_embed.to(device).unsqueeze(0)
 
@@ -1197,9 +1233,8 @@ class Chat3D(nn.Module):
             with self.maybe_autocast():
                 outputs = self.llama_model.generate(
                     inputs_embeds=wrapped_embed,
-                    max_new_tokens=self.max_txt_len,
+                    **generation_kwargs,
                     # stopping_criteria=stopping_criteria,
-                    num_beams=5,
                     # do_sample=True,
                     min_length=1,
                     # top_p=0.9,
@@ -1209,12 +1244,16 @@ class Chat3D(nn.Module):
                     customized_mask=attention_mask
                 )
             output_token = outputs[0]
+            if return_generation_metadata:
+                generated_token_counts.append(int(output_token.numel()))
             output_text = self.llama_tokenizer.decode(output_token)
             output_text = output_text.split(self.end_sym)[0]
             output_text = output_text.replace('  ', ' ').replace(' .', '.').strip()
             output_text = recover_caption(output_text, assigned_ids[i].tolist())
             output_texts.append(output_text)
         
+        if return_generation_metadata:
+            return output_texts, gate_values, generated_token_counts
         return output_texts, gate_values
 
     def forward(self, **kwargs):

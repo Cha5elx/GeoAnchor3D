@@ -79,6 +79,8 @@ class ParameterStatisticsTest(unittest.TestCase):
             ("object_proj.0.weight", FakeParameter(4, True, 3)),
             ("object_img_proj.0.weight", FakeParameter(5, False, 4)),
             ("scene_proj.0.weight", FakeParameter(6, True, 5)),
+            ("spatial_relation_attention.w_qs.weight", FakeParameter(7, True, 6)),
+            ("coord_head.0.weight", FakeParameter(8, True, 7)),
         ])
 
         result = count_model_parameters(model)
@@ -88,6 +90,8 @@ class ParameterStatisticsTest(unittest.TestCase):
         self.assertEqual(result["groups"]["object_projector"], 4)
         self.assertEqual(result["groups"]["image_projector"], 5)
         self.assertEqual(result["groups"]["scene_graph_projector"], 6)
+        self.assertEqual(result["groups"]["igga"], 7)
+        self.assertEqual(result["groups"]["gath"], 8)
         self.assertNotIn("image_projector", result["trainable_groups"])
 
 

@@ -13,6 +13,10 @@ def parameter_group(name):
     lowered = name.lower()
     if any(token in lowered for token in ("lora_", ".adapter", "adapters.", "modules_to_save")):
         return "lora_adapter"
+    if lowered.startswith("spatial_relation_attention."):
+        return "igga"
+    if lowered.startswith("coord_head.") or lowered == "geo_layer_weights":
+        return "gath"
     if lowered.startswith("llama_model."):
         return "language_model"
     if lowered.startswith("object_img_proj."):
