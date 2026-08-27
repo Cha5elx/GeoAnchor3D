@@ -5,7 +5,7 @@ source "$(dirname "$0")/lib/common.sh"
 require_env LLM_PATH
 require_env FULL_CHECKPOINT
 
-output_dir="${OUTPUT_DIR:-$REPO_ROOT/reviewer_response/results/within_task_gating/$(timestamp)}"
+output_dir="${OUTPUT_DIR:-$REVIEWER_OUTPUT_ROOT/within_task_gating/$(timestamp)}"
 mkdir -p "$output_dir"
 
 run_python tasks/train.py scripts/config.py \

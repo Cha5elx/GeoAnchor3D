@@ -3,6 +3,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REVIEWER_OUTPUT_ROOT="${REVIEWER_OUTPUT_ROOT:-/data/lcx/chat-scene01/outputs/reviewer_response}"
 cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -49,7 +50,7 @@ run_ablation_training() {
         exit 2
     fi
 
-    local output_dir="${OUTPUT_DIR:-$REPO_ROOT/reviewer_response/results/$experiment/$(timestamp)}"
+    local output_dir="${OUTPUT_DIR:-$REVIEWER_OUTPUT_ROOT/$experiment/$(timestamp)}"
     local gate_loss_weight="${GATE_LOSS_WEIGHT:-1.0}"
     if [[ "$gate_supervision" == "False" ]]; then
         gate_loss_weight=0.0

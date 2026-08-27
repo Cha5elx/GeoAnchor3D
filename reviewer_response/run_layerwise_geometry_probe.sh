@@ -6,7 +6,7 @@ require_env LLM_PATH
 require_env BASELINE_CHECKPOINT
 require_env FULL_CHECKPOINT
 
-output_dir="${OUTPUT_DIR:-$REPO_ROOT/reviewer_response/results/layerwise_geometry_probe/$(timestamp)}"
+output_dir="${OUTPUT_DIR:-$REVIEWER_OUTPUT_ROOT/layerwise_geometry_probe/$(timestamp)}"
 mkdir -p "$output_dir"
 
 for model_name in baseline geoanchor3d; do

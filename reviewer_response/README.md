@@ -1,6 +1,6 @@
 # GeoAnchor3D 审稿回复实验
 
-本目录只保存补充实验入口、分析代码和结果。除两个必要配置钩子外，训练与评估仍复用仓库原入口；运行结果统一写入 `reviewer_response/results/`，并被 `.gitignore` 排除。
+本目录保存补充实验入口和分析代码。除两个必要配置钩子外，训练与评估仍复用仓库原入口；服务器运行结果统一写入 `/data/lcx/chat-scene01/outputs/reviewer_response/`。
 
 ## 先读：本次代码审计发现
 
@@ -18,6 +18,7 @@ model.fixed_gate_value=0.5
 
 | 实验 | 审稿问题 | 计算类型 | 是否重训 7B 主模型 | 入口 |
 |---|---|---|---|---|
+| Full dynamic per-head | 重建缺失的 GeoAnchor3D Full checkpoint | 完整训练 | **是** | `run_full_per_head.sh` |
 | Dynamic scalar gate | per-head 是否优于共享标量 | 完整训练 | **是** | `run_dynamic_scalar.sh` |
 | Per-head w/o gate prior | 是否只是 task classifier | 完整训练 | **是** | `run_per_head_no_gate.sh` |
 | ScanRefer 内部 gate 分析 | 同一 task 内是否随指令复杂度变化 | 现有 checkpoint 评估+统计 | **否** | `run_within_task_gating.sh` |
@@ -28,18 +29,20 @@ model.fixed_gate_value=0.5
 
 ## 统一准备
 
-所有命令都从仓库根目录运行。两个完整训练 setting 必须使用相同的初始 checkpoint、数据组合、学习率、batch size 和 seed。`INIT_CHECKPOINT` 推荐使用尚未训练 IGGA/GATH 消融分支的共同 Chat-Scene/stage checkpoint；不要让 scalar 从一个已收敛的 per-head Full checkpoint 开始，而另一个 setting 从不同 checkpoint 开始。
+所有命令都从仓库根目录运行。三个完整训练 setting 必须使用相同的初始 checkpoint、数据组合、学习率、batch size 和 seed。当前统一使用 Chat-Scene 官方 checkpoint 作为 `INIT_CHECKPOINT` 和 `BASELINE_CHECKPOINT`。
 
-两个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。`BATCH_SIZE` 表示**每卡** batch size，默认 `16` 时全局 batch size 为 `32`；如果论文原设置的全局 batch size 是 `16`，请在运行前设置 `export BATCH_SIZE=8`。
+三个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。`BATCH_SIZE` 表示**每卡** batch size，默认 `16` 时全局 batch size 为 `32`；如果论文原设置的全局 batch size 是 `16`，请在运行前设置 `export BATCH_SIZE=8`。
 
 ```bash
 conda activate geoanchor3d
 export CUDA_VISIBLE_DEVICES=0,1
 export TRAIN_NPROC_PER_NODE=2
-export LLM_PATH=/absolute/path/to/vicuna-7b-v1.5
-export INIT_CHECKPOINT=/absolute/path/to/common_initial_checkpoint.pth
-export BASELINE_CHECKPOINT=/absolute/path/to/chatscene_checkpoint.pth
-export FULL_CHECKPOINT=/absolute/path/to/geoanchor3d_full_checkpoint.pth
+export REVIEWER_OUTPUT_ROOT='/data/lcx/chat-scene01/outputs/reviewer_response'
+export LLM_PATH='/data/lcx/HuggingFace-Download-Accelerator/hf_hub/models--lmsys--vicuna-7b-v1.5'
+export BASELINE_CHECKPOINT='/data/lcx/chat-scene/Chat-Scene/pretrained_models/ckpt_01_3446.pth'
+export INIT_CHECKPOINT="$BASELINE_CHECKPOINT"
+
+# FULL_CHECKPOINT 暂不设置；先运行 run_full_per_head.sh 重新生成。
 
 # 必须与论文 Full setting 完全一致；这里不静默猜测训练配方。
 export TRAIN_TAG='scanrefer#obj_align#nr3d_caption#scan2cap#scanqa#sqa3d#multi3dref'
@@ -48,7 +51,17 @@ export VAL_TAG='scanrefer#multi3dref#scan2cap#scanqa'
 
 如果论文最终训练组合不同，请以论文实际组合替换 `TRAIN_TAG` 和 `VAL_TAG`。当前仓库 `scripts/run.sh` 的活动配置只包含 `scanrefer#obj_align#nr3d_caption#scanqa`，与注释中的全任务配方不同，不能未经确认就用于审稿表格。
 
-## 1. Dynamic scalar（需要完整重训）
+## 1. Full dynamic per-head（需要完整重训）
+
+原 Full checkpoint 暂时无法定位，因此先从 Chat-Scene checkpoint 重训正确的 Full setting：
+
+```bash
+bash reviewer_response/run_full_per_head.sh
+```
+
+关键配置为 `gate_granularity=per_head`、`alpha_ablation_mode=0`、`use_gate_supervision=True`、`gate_loss_weight=1.0`、`coord_loss_weight=0.1`。训练完成后，将最后一个 epoch 的 checkpoint 设置为后续实验使用的 `FULL_CHECKPOINT`。
+
+## 2. Dynamic scalar（需要完整重训）
 
 ```bash
 bash reviewer_response/run_dynamic_scalar.sh
@@ -56,7 +69,7 @@ bash reviewer_response/run_dynamic_scalar.sh
 
 关键配置为 `gate_granularity=scalar`、`alpha_ablation_mode=0`、`use_gate_supervision=True`。所有 attention heads 共享一个 instruction-conditioned gate，但其余结构与 Full setting 保持一致。
 
-## 2. Per-head w/o gate prior（需要完整重训）
+## 3. Per-head w/o gate prior（需要完整重训）
 
 ```bash
 bash reviewer_response/run_per_head_no_gate.sh
@@ -64,7 +77,7 @@ bash reviewer_response/run_per_head_no_gate.sh
 
 关键配置为 `gate_granularity=per_head`、`use_gate_supervision=False`、`gate_loss_weight=0`。LM loss 仍可端到端学习 gate，因此这是“无 task-type prior”，不是“固定 gate”。
 
-## 3. Within-task gating（仅评估）
+## 4. Within-task gating（仅评估）
 
 ```bash
 bash reviewer_response/run_within_task_gating.sh
@@ -73,8 +86,8 @@ bash reviewer_response/run_within_task_gating.sh
 脚本先用 Full checkpoint 评估 ScanRefer，再按 prompt 中显式空间关系短语的数量分为 `0 / 1 / 2+`，输出均值、标准差及 95% CI：
 
 ```text
-reviewer_response/results/within_task_gating/<time>/within_task_gating.json
-reviewer_response/results/within_task_gating/<time>/within_task_gating.csv
+/data/lcx/chat-scene01/outputs/reviewer_response/within_task_gating/<time>/within_task_gating.json
+/data/lcx/chat-scene01/outputs/reviewer_response/within_task_gating/<time>/within_task_gating.csv
 ```
 
 若已有包含 `prompt`、`gate_values` 的合并预测文件，可跳过生成，直接运行：
@@ -82,13 +95,13 @@ reviewer_response/results/within_task_gating/<time>/within_task_gating.csv
 ```bash
 python reviewer_response/analyze_within_task_gating.py \
   --predictions /path/to/preds_scanrefer.json \
-  --output-json reviewer_response/results/within_task_gating.json \
-  --output-csv reviewer_response/results/within_task_gating.csv
+  --output-json "$REVIEWER_OUTPUT_ROOT/within_task_gating.json" \
+  --output-csv "$REVIEWER_OUTPUT_ROOT/within_task_gating.csv"
 ```
 
 这是一项词表启发式分析。写论文时应公开关系词表，并同时报告每组样本数；不要只挑选满足单调趋势的词或样本。
 
-## 4. Layer-wise geometry probe（不重训主模型）
+## 5. Layer-wise geometry probe（不重训主模型）
 
 ```bash
 bash reviewer_response/run_layerwise_geometry_probe.sh
@@ -97,8 +110,8 @@ bash reviewer_response/run_layerwise_geometry_probe.sh
 默认对第 `4,8,...,32` 层提取对象 token，使用固定 prompt，按 scene 做确定性 train/test 切分，目标是每个场景中心化后的 `(x,y,z)`。输出 baseline 与 Full 的 held-out RMSE、每轴 RMSE、R²：
 
 ```text
-reviewer_response/results/layerwise_geometry_probe/<time>/baseline.json
-reviewer_response/results/layerwise_geometry_probe/<time>/geoanchor3d.json
+/data/lcx/chat-scene01/outputs/reviewer_response/layerwise_geometry_probe/<time>/baseline.json
+/data/lcx/chat-scene01/outputs/reviewer_response/layerwise_geometry_probe/<time>/geoanchor3d.json
 ```
 
 先用较小规模检查流程：
@@ -109,7 +122,7 @@ PROBE_MAX_SCENES=10 PROBE_EPOCHS=2 bash reviewer_response/run_layerwise_geometry
 
 正式结果建议至少 100 个 scene；baseline 和 Full 必须使用同一 scene split、层号、prompt、probe epoch 与 seed。
 
-## 5. Efficiency（仅 benchmark，不更新模型）
+## 6. Efficiency（仅 benchmark，不更新模型）
 
 ```bash
 bash reviewer_response/run_efficiency.sh
