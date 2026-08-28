@@ -33,21 +33,14 @@ model.fixed_gate_value=0.5
 
 三个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。每卡 batch size 固定为 `8`，双卡全局 batch size 为 `16`。训练入口不再读取外部 `BATCH_SIZE`，避免旧的 `BATCH_SIZE=16` 环境变量导致 OOM。
 
+服务器路径、双卡设置及已确认的训练/验证任务组合已写入 `lib/common.sh`，仍可通过同名环境变量覆盖。每次登录服务器只需激活环境并进入仓库：
+
 ```bash
-conda activate geoanchor3d
-export CUDA_VISIBLE_DEVICES=0,1
-export TRAIN_NPROC_PER_NODE=2
-export REVIEWER_OUTPUT_ROOT='/data/lcx/chat-scene01/outputs/reviewer_response'
-export LLM_PATH='/data/lcx/HuggingFace-Download-Accelerator/hf_hub/models--lmsys--vicuna-7b-v1.5'
-export BASELINE_CHECKPOINT='/data/lcx/chat-scene/Chat-Scene/pretrained_models/ckpt_01_3446.pth'
-export INIT_CHECKPOINT="$BASELINE_CHECKPOINT"
-
-# FULL_CHECKPOINT 暂不设置；先运行 run_full_per_head.sh 重新生成。
-
-# 必须与论文 Full setting 完全一致；这里不静默猜测训练配方。
-export TRAIN_TAG='scanrefer#obj_align#nr3d_caption#scan2cap#scanqa#sqa3d#multi3dref'
-export VAL_TAG='scanrefer#multi3dref#scan2cap#scanqa'
+conda activate chat-scene
+cd /data/lcx/chat-scene/Chat-Scene
 ```
+
+所有正式命令统一通过 `launch_background.sh` 启动。它使用 `nohup + setsid` 脱离 SSH 会话，并把日志和 PID 放入该次实验输出目录。`libtinfo.so.6: no version information available` 是 Conda 动态库警告，不会导致实验退出。
 
 如果论文最终训练组合不同，请以论文实际组合替换 `TRAIN_TAG` 和 `VAL_TAG`。当前仓库 `scripts/run.sh` 的活动配置只包含 `scanrefer#obj_align#nr3d_caption#scanqa`，与注释中的全任务配方不同，不能未经确认就用于审稿表格。
 
@@ -56,7 +49,7 @@ export VAL_TAG='scanrefer#multi3dref#scan2cap#scanqa'
 原 Full checkpoint 暂时无法定位，因此先从 Chat-Scene checkpoint 重训正确的 Full setting：
 
 ```bash
-bash reviewer_response/run_full_per_head.sh
+bash reviewer_response/launch_background.sh full_per_head
 ```
 
 关键配置为 `gate_granularity=per_head`、`alpha_ablation_mode=0`、`use_gate_supervision=True`、`gate_loss_weight=1.0`、`coord_loss_weight=0.1`。训练完成后，将最后一个 epoch 的 checkpoint 设置为后续实验使用的 `FULL_CHECKPOINT`。
@@ -64,7 +57,7 @@ bash reviewer_response/run_full_per_head.sh
 ## 2. Dynamic scalar（需要完整重训）
 
 ```bash
-bash reviewer_response/run_dynamic_scalar.sh
+bash reviewer_response/launch_background.sh dynamic_scalar
 ```
 
 关键配置为 `gate_granularity=scalar`、`alpha_ablation_mode=0`、`use_gate_supervision=True`。所有 attention heads 共享一个 instruction-conditioned gate，但其余结构与 Full setting 保持一致。
@@ -72,7 +65,7 @@ bash reviewer_response/run_dynamic_scalar.sh
 ## 3. Per-head w/o gate prior（需要完整重训）
 
 ```bash
-bash reviewer_response/run_per_head_no_gate.sh
+bash reviewer_response/launch_background.sh per_head_no_gate
 ```
 
 关键配置为 `gate_granularity=per_head`、`use_gate_supervision=False`、`gate_loss_weight=0`。LM loss 仍可端到端学习 gate，因此这是“无 task-type prior”，不是“固定 gate”。
@@ -80,7 +73,7 @@ bash reviewer_response/run_per_head_no_gate.sh
 ## 4. Within-task gating（仅评估）
 
 ```bash
-bash reviewer_response/run_within_task_gating.sh
+bash reviewer_response/launch_background.sh within_task_gating
 ```
 
 脚本先用 Full checkpoint 评估 ScanRefer，再按 prompt 中显式空间关系短语的数量分为 `0 / 1 / 2+`，输出均值、标准差及 95% CI：
@@ -104,7 +97,7 @@ python reviewer_response/analyze_within_task_gating.py \
 ## 5. Layer-wise geometry probe（不重训主模型）
 
 ```bash
-bash reviewer_response/run_layerwise_geometry_probe.sh
+bash reviewer_response/launch_background.sh layerwise_geometry_probe
 ```
 
 默认对第 `4,8,...,32` 层提取对象 token，使用固定 prompt，按 scene 做确定性 train/test 切分，目标是每个场景中心化后的 `(x,y,z)`。输出 baseline 与 Full 的 held-out RMSE、每轴 RMSE、R²：
@@ -117,7 +110,8 @@ bash reviewer_response/run_layerwise_geometry_probe.sh
 先用较小规模检查流程：
 
 ```bash
-PROBE_MAX_SCENES=10 PROBE_EPOCHS=2 bash reviewer_response/run_layerwise_geometry_probe.sh
+PROBE_MAX_SCENES=10 PROBE_EPOCHS=2 \
+  bash reviewer_response/launch_background.sh layerwise_geometry_probe
 ```
 
 正式结果建议至少 100 个 scene；baseline 和 Full 必须使用同一 scene split、层号、prompt、probe epoch 与 seed。
@@ -125,7 +119,7 @@ PROBE_MAX_SCENES=10 PROBE_EPOCHS=2 bash reviewer_response/run_layerwise_geometry
 ## 6. Efficiency（仅 benchmark，不更新模型）
 
 ```bash
-bash reviewer_response/run_efficiency.sh
+bash reviewer_response/launch_background.sh efficiency
 ```
 
 每个方法生成两份报告：

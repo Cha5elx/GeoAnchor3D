@@ -4,6 +4,15 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REVIEWER_OUTPUT_ROOT="${REVIEWER_OUTPUT_ROOT:-/data/lcx/chat-scene01/outputs/reviewer_response}"
+LLM_PATH="${LLM_PATH:-/data/lcx/HuggingFace-Download-Accelerator/hf_hub/models--lmsys--vicuna-7b-v1.5}"
+BASELINE_CHECKPOINT="${BASELINE_CHECKPOINT:-/data/lcx/chat-scene/Chat-Scene/pretrained_models/ckpt_01_3446.pth}"
+INIT_CHECKPOINT="${INIT_CHECKPOINT:-$BASELINE_CHECKPOINT}"
+TRAIN_TAG="${TRAIN_TAG:-scanrefer#obj_align#nr3d_caption#scan2cap#scanqa#sqa3d#multi3dref}"
+VAL_TAG="${VAL_TAG:-scanrefer#multi3dref#scan2cap#scanqa}"
+TRAIN_NPROC_PER_NODE="${TRAIN_NPROC_PER_NODE:-2}"
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+export REVIEWER_OUTPUT_ROOT LLM_PATH BASELINE_CHECKPOINT INIT_CHECKPOINT
+export TRAIN_TAG VAL_TAG TRAIN_NPROC_PER_NODE CUDA_VISIBLE_DEVICES
 cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -17,6 +26,25 @@ require_env() {
 
 timestamp() {
     date +"%Y%m%d_%H%M%S"
+}
+
+resolve_full_checkpoint() {
+    if [[ -n "${FULL_CHECKPOINT:-}" ]]; then
+        return
+    fi
+
+    local checkpoint
+    checkpoint="$(find "$REVIEWER_OUTPUT_ROOT/full_per_head" -type f -name 'ckpt_02_*.pth' \
+        -printf '%T@ %p\n' 2>/dev/null | sort -nr | sed -n '1p' | cut -d' ' -f2-)"
+    if [[ -z "$checkpoint" ]]; then
+        echo "No completed Full checkpoint was found under:" >&2
+        echo "  $REVIEWER_OUTPUT_ROOT/full_per_head" >&2
+        echo "Finish full_per_head first, or export FULL_CHECKPOINT explicitly." >&2
+        exit 2
+    fi
+    FULL_CHECKPOINT="$checkpoint"
+    export FULL_CHECKPOINT
+    echo "Using Full checkpoint: $FULL_CHECKPOINT"
 }
 
 run_python() {
