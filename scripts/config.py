@@ -367,6 +367,7 @@ device = "cuda"
 # ========================= others ==========================
 output_dir = "outputs/tmp"  # output dir
 resume = False  # if True, load optimizer and scheduler states as well
+resume_checkpoint_path = ""
 debug = False
 log_freq = 20
 # eval_freq = 500

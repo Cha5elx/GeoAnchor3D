@@ -13,6 +13,17 @@ from utils.scheduler import create_scheduler
 logger = logging.getLogger(__name__)
 
 
+def load_model_state(model, state_dict):
+    keys_to_delete = []
+    model_state_dict = model.state_dict()
+    for name, param in state_dict.items():
+        if name in model_state_dict and param.size() != model_state_dict[name].size():
+            keys_to_delete.append(name)
+    for key in keys_to_delete:
+        del state_dict[key]
+    return model.load_state_dict(state_dict, strict=False)
+
+
 def get_media_types(datasources):
     """get the media types for for all the dataloaders.
 
@@ -98,19 +109,37 @@ def setup_model(
             scaler.load_state_dict(checkpoint["scaler"])
             start_epoch = checkpoint["epoch"] + 1
             global_step = checkpoint["global_step"]
-        keys_to_delete = []
-        for name, param  in state_dict.items():
-            if name not in model_without_ddp.state_dict():
-                continue
-            if param.size() != model_without_ddp.state_dict()[name].size():
-                keys_to_delete.append(name)
-        for key in keys_to_delete:
-            del state_dict[key]
-        msg = model_without_ddp.load_state_dict(state_dict, strict=False)
+        msg = load_model_state(model_without_ddp, state_dict)
         logger.info(msg)
         logger.info(f"Loaded checkpoint from {config.pretrained_path}.")
     else:
         logger.warning("No pretrained checkpoint provided, training from scratch.")
+
+    resume_checkpoint_path = config.get("resume_checkpoint_path", "")
+    if resume_checkpoint_path:
+        if not osp.isfile(resume_checkpoint_path):
+            raise FileNotFoundError(
+                f"Resume checkpoint not found: {resume_checkpoint_path}"
+            )
+        resume_checkpoint = torch.load(
+            resume_checkpoint_path, map_location="cpu", weights_only=False
+        )
+        msg = load_model_state(
+            model_without_ddp, resume_checkpoint["model"]
+        )
+        optimizer.load_state_dict(resume_checkpoint["optimizer"])
+        scheduler.load_state_dict(resume_checkpoint["scheduler"])
+        scaler.load_state_dict(resume_checkpoint["scaler"])
+        start_epoch = resume_checkpoint["epoch"] + 1
+        global_step = resume_checkpoint["global_step"]
+        logger.info(msg)
+        logger.info(
+            "Restored training state from %s; resuming at epoch %d, "
+            "global step %d.",
+            resume_checkpoint_path,
+            start_epoch,
+            global_step,
+        )
 
     # if osp.isfile(config.get("stage1_checkpoint_path", "")):
     #     logger.info(f"Loading stage1 checkpoint from {config.stage1_checkpoint_path}...")

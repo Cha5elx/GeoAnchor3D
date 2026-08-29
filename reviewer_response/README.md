@@ -35,6 +35,15 @@ model.fixed_gate_value=0.5
 
 每个 epoch 完成训练后，Rank 0 会先保存 checkpoint，再开始多任务评估。因此即使评估生成或指标计算失败，该轮权重仍会保留。双卡评估在预测文件合并前和指标计算后显式同步；分布式 collective 超时默认设为 120 分钟，可通过 `TORCH_DISTRIBUTED_TIMEOUT_MINUTES` 覆盖。
 
+每轮会保存两个文件：`ckpt_XX_step.pth` 保持原有轻量格式，用于评估和论文实验；`resume_XX_step.pth` 额外包含 optimizer、scheduler 和 AMP scaler，用于严格续训。若评估阶段失败，可从仓库根目录运行：
+
+```bash
+RESUME_CHECKPOINT=/absolute/path/to/resume_00_15264.pth \
+  bash reviewer_response/launch_background.sh full_per_head
+```
+
+续训会先加载统一的 `INIT_CHECKPOINT`，再叠加 resume 文件中的模型和训练状态，并从下一个 epoch 开始。不同消融实验必须使用对应实验自己的 resume 文件，不能交叉续训。
+
 服务器路径、双卡设置及已确认的训练/验证任务组合已写入 `lib/common.sh`，仍可通过同名环境变量覆盖。每次登录服务器只需激活环境并进入仓库：
 
 ```bash

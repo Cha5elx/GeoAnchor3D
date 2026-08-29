@@ -49,7 +49,15 @@ scorers = [
 max_global_step = 200000000
 
 
-def save_checkpoint(model_without_ddp, epoch, global_step, config):
+def save_checkpoint(
+    model_without_ddp,
+    optimizer,
+    scheduler,
+    scaler,
+    epoch,
+    global_step,
+    config,
+):
     if not is_main_process() or not config.do_save or config.debug:
         return
 
@@ -69,12 +77,25 @@ def save_checkpoint(model_without_ddp, epoch, global_step, config):
     }
     if config.get("save_latest", False):
         checkpoint_path = join(config.output_dir, "ckpt_latest.pth")
+        resume_path = join(config.output_dir, "resume_latest.pth")
     else:
         checkpoint_path = join(
             config.output_dir, f"ckpt_{epoch:02d}_{global_step}.pth"
         )
+        resume_path = join(
+            config.output_dir, f"resume_{epoch:02d}_{global_step}.pth"
+        )
     torch.save(save_obj, checkpoint_path)
     logger.info(f"Saved checkpoint before evaluation: {checkpoint_path}")
+
+    resume_obj = {
+        **save_obj,
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict(),
+    }
+    torch.save(resume_obj, resume_path)
+    logger.info(f"Saved training state before evaluation: {resume_path}")
 
 
 def train(
@@ -166,7 +187,13 @@ def train(
 
         if do_eval and ((i+1) % eval_freq == 0 and (len(train_loader) - i >= eval_freq) or i == len(train_loader) - 1):
             save_checkpoint(
-                model_without_ddp, epoch, global_step, config
+                model_without_ddp,
+                optimizer,
+                scheduler,
+                scaler,
+                epoch,
+                global_step,
+                config,
             )
             if config.distributed:
                 dist.barrier()

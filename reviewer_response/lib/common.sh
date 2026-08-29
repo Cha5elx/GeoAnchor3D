@@ -65,6 +65,10 @@ run_ablation_training() {
     require_env INIT_CHECKPOINT
     require_env TRAIN_TAG
     require_env VAL_TAG
+    if [[ -n "${RESUME_CHECKPOINT:-}" && ! -f "$RESUME_CHECKPOINT" ]]; then
+        echo "Resume checkpoint does not exist: $RESUME_CHECKPOINT" >&2
+        exit 2
+    fi
 
     local train_nproc="${TRAIN_NPROC_PER_NODE:-2}"
     if [[ "$train_nproc" -ne 2 ]]; then
@@ -90,6 +94,7 @@ run_ablation_training() {
         scheduler.epochs "${EPOCHS:-3}" \
         optimizer.lr "${LEARNING_RATE:-5e-6}" \
         pretrained_path "$INIT_CHECKPOINT" \
+        resume_checkpoint_path "${RESUME_CHECKPOINT:-}" \
         evaluate False \
         auto_resume False \
         wandb.enable "${ENABLE_WANDB:-False}" \
