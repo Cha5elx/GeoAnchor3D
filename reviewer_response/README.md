@@ -33,6 +33,8 @@ model.fixed_gate_value=0.5
 
 三个完整训练脚本固定采用双卡 DDP：`torchrun --nproc_per_node=2`，两张卡都会参与训练。每卡 batch size 固定为 `8`，双卡全局 batch size 为 `16`。训练入口不再读取外部 `BATCH_SIZE`，避免旧的 `BATCH_SIZE=16` 环境变量导致 OOM。
 
+每个 epoch 完成训练后，Rank 0 会先保存 checkpoint，再开始多任务评估。因此即使评估生成或指标计算失败，该轮权重仍会保留。双卡评估在预测文件合并前和指标计算后显式同步；分布式 collective 超时默认设为 120 分钟，可通过 `TORCH_DISTRIBUTED_TIMEOUT_MINUTES` 覆盖。
+
 服务器路径、双卡设置及已确认的训练/验证任务组合已写入 `lib/common.sh`，仍可通过同名环境变量覆盖。每次登录服务器只需激活环境并进入仓库：
 
 ```bash

@@ -49,6 +49,34 @@ scorers = [
 max_global_step = 200000000
 
 
+def save_checkpoint(model_without_ddp, epoch, global_step, config):
+    if not is_main_process() or not config.do_save or config.debug:
+        return
+
+    param_grad_dic = {
+        k: v.requires_grad for (k, v) in model_without_ddp.named_parameters()
+    }
+    state_dict = model_without_ddp.state_dict()
+    for key in list(state_dict.keys()):
+        if key in param_grad_dic and not param_grad_dic[key]:
+            del state_dict[key]
+
+    save_obj = {
+        "model": state_dict,
+        "config": config,
+        "epoch": epoch,
+        "global_step": global_step,
+    }
+    if config.get("save_latest", False):
+        checkpoint_path = join(config.output_dir, "ckpt_latest.pth")
+    else:
+        checkpoint_path = join(
+            config.output_dir, f"ckpt_{epoch:02d}_{global_step}.pth"
+        )
+    torch.save(save_obj, checkpoint_path)
+    logger.info(f"Saved checkpoint before evaluation: {checkpoint_path}")
+
+
 def train(
     model,
     model_without_ddp,
@@ -137,6 +165,11 @@ def train(
         global_step += 1
 
         if do_eval and ((i+1) % eval_freq == 0 and (len(train_loader) - i >= eval_freq) or i == len(train_loader) - 1):
+            save_checkpoint(
+                model_without_ddp, epoch, global_step, config
+            )
+            if config.distributed:
+                dist.barrier()
             val_metrics = evaluate_all(model, model_without_ddp, val_loaders, epoch, global_step, device, config)
             if is_main_process():
                 for k, v in val_metrics.items():
@@ -146,27 +179,6 @@ def train(
             if is_main_process() and config.wandb.enable:
                 logs = eval_metric_logger.get_avg_dict()
                 log_dict_to_wandb(logs, step=global_step, prefix="val/")
-            
-            if is_main_process():
-                param_grad_dic = {
-                    k: v.requires_grad for (k, v) in model_without_ddp.named_parameters()
-                }
-                state_dict = model_without_ddp.state_dict()
-                for k in list(state_dict.keys()):
-                    if k in param_grad_dic.keys() and not param_grad_dic[k]:
-                        # delete parameters that do not require gradient
-                        del state_dict[k]
-                save_obj = {
-                    "model": state_dict,
-                    # "optimizer": optimizer.state_dict(),
-                    # "scheduler": scheduler.state_dict(),
-                    # "scaler": scaler.state_dict(),
-                    "config": config,
-                    "epoch": epoch,
-                    "global_step": global_step,
-                }
-                if i != len(train_loader) - 1 and config.do_save and not config.debug:
-                    torch.save(save_obj, join(config.output_dir, f"ckpt_{epoch:02d}_{global_step}.pth"))
         if global_step > max_global_step:
             return global_step
 
@@ -267,7 +279,8 @@ def evaluate(
                   "w") as f:
             json.dump(save_preds, f, indent=4)
 
-    # dist.barrier()
+    if config.distributed:
+        dist.barrier()
     if is_main_process():
         save_preds = []
         for rank in range(config.gpu_num):
@@ -328,6 +341,8 @@ def evaluate(
             #     else:
             #         val_scores[f"[{eval_name}] {method}"] = score
         print(json.dumps(val_scores, indent=4))
+    if config.distributed:
+        dist.barrier()
     return val_scores
 
 
@@ -410,7 +425,6 @@ def main(config):
     if is_main_process() and config.wandb.enable:
         wandb.watch(model)
     
-    save_step_interval = 1
     start_time = time.time()
     if not config.evaluate:
         logger.info("Start training")
@@ -430,28 +444,6 @@ def main(config):
             )
             if is_main_process():
                 logger.info(f"Epoch {epoch}")
-                param_grad_dic = {
-                    k: v.requires_grad for (k, v) in model_without_ddp.named_parameters()
-                }
-                state_dict = model_without_ddp.state_dict()
-                for k in list(state_dict.keys()):
-                    if k in param_grad_dic.keys() and not param_grad_dic[k]:
-                        # delete parameters that do not require gradient
-                        del state_dict[k]
-                save_obj = {
-                    "model": state_dict,
-                    # "optimizer": optimizer.state_dict(),
-                    # "scheduler": scheduler.state_dict(),
-                    # "scaler": scaler.state_dict(),
-                    "config": config,
-                    "epoch": epoch,
-                    "global_step": global_step,
-                }
-                if ((epoch+1) % save_step_interval == 0 or epoch == config.scheduler.epochs - 1) and config.do_save and not config.debug:
-                    if config.get("save_latest", False):
-                        torch.save(save_obj, join(config.output_dir, "ckpt_latest.pth"))
-                    else:
-                        torch.save(save_obj, join(config.output_dir, f"ckpt_{epoch:02d}_{global_step}.pth"))
 
             if global_step > max_global_step:
                 break
