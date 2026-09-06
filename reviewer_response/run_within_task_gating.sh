@@ -19,6 +19,7 @@ run_python tasks/train.py scripts/config.py \
     train_tag scanrefer \
     val_tag scanrefer \
     model.llama_model_path "$LLM_PATH" \
+    model.add_scene_token False \
     model.max_obj_num "${MAX_OBJ_NUM:-100}" \
     model.gate_granularity per_head \
     model.alpha_ablation_mode 0
