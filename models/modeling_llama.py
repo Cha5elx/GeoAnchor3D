@@ -981,9 +981,24 @@ class LlamaModel(LlamaPreTrainedModel):
             inputs_embeds = self.embed_tokens(input_ids)
 
         past_seen_tokens = 0
+        return_legacy_cache = False
         if use_cache:  # kept for BC (cache positions)
-            if not isinstance(past_key_values, StaticCache):
-                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+            if isinstance(past_key_values, Cache):
+                past_seen_tokens = past_key_values.get_seq_length()
+            else:
+                from_legacy_cache = getattr(DynamicCache, "from_legacy_cache", None)
+                if from_legacy_cache is not None:
+                    return_legacy_cache = True
+                    past_key_values = from_legacy_cache(past_key_values)
+                elif past_key_values is None:
+                    try:
+                        past_key_values = DynamicCache(config=self.config)
+                    except TypeError:
+                        past_key_values = DynamicCache()
+                else:
+                    raise TypeError(
+                        "Legacy tuple caches are not supported by this Transformers version"
+                    )
                 past_seen_tokens = past_key_values.get_seq_length()
 
         if cache_position is None:
@@ -1048,9 +1063,11 @@ class LlamaModel(LlamaPreTrainedModel):
 
         next_cache = None
         if use_cache:
-            next_cache = (
-                next_decoder_cache.to_legacy_cache() if isinstance(next_decoder_cache, Cache) else next_decoder_cache
-            )
+            next_cache = next_decoder_cache
+            if return_legacy_cache and isinstance(next_decoder_cache, Cache):
+                to_legacy_cache = getattr(next_decoder_cache, "to_legacy_cache", None)
+                if to_legacy_cache is not None:
+                    next_cache = to_legacy_cache()
         if not return_dict:
             return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
         return BaseModelOutputWithPast(
@@ -1271,9 +1288,13 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
         if past_key_values is not None:
             if isinstance(past_key_values, Cache):
                 past_length = cache_position[0] if cache_position is not None else past_key_values.get_seq_length()
+                get_max_length = getattr(past_key_values, "get_max_length", None)
+                if get_max_length is None:
+                    get_max_length = getattr(past_key_values, "get_max_cache_shape", None)
+                raw_max_cache_length = get_max_length() if get_max_length is not None else None
                 max_cache_length = (
-                    torch.tensor(past_key_values.get_max_length(), device=input_ids.device)
-                    if past_key_values.get_max_length() is not None
+                    torch.as_tensor(raw_max_cache_length, device=input_ids.device)
+                    if raw_max_cache_length not in (None, -1)
                     else None
                 )
                 cache_length = past_length if max_cache_length is None else torch.min(max_cache_length, past_length)
