@@ -170,6 +170,8 @@ run_backbone_training() {
         train_tag "$TRAIN_TAG" \
         val_tag "$VAL_TAG" \
         model.llama_model_path "$ALT_LLM_PATH" \
+        model.force_legacy_weight_reload True \
+        model.attn_implementation "${BACKBONE_ATTN_IMPLEMENTATION:-flash_attention_2}" \
         model.add_scene_token False \
         model.max_obj_num 100 \
         model.use_spatial_attention "$use_spatial_attention" \

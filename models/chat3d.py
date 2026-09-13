@@ -1,6 +1,8 @@
 import random
 import logging
+import json
 from abc import ABC
+from pathlib import Path
 from typing import Optional
 from collections import Counter
 
@@ -68,6 +70,58 @@ def _refresh_llama_rotary_inv_freq(model):
         "Checked %d RoPE inv_freq buffers; refreshed %d invalid buffers",
         checked,
         refreshed,
+    )
+
+
+def _reload_llama_safetensors_compat(model, model_path):
+    """Load sharded safetensors through state_dict for older custom model classes."""
+    from safetensors.torch import load_file
+
+    model_path = Path(model_path)
+    index_path = model_path / "model.safetensors.index.json"
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Missing safetensors index: {index_path}")
+
+    with index_path.open("r", encoding="utf-8") as file:
+        weight_map = json.load(file)["weight_map"]
+
+    model_keys = set(model.state_dict())
+    loaded_keys = set()
+    ignored_keys = set()
+    shard_names = sorted(set(weight_map.values()))
+
+    for shard_name in shard_names:
+        shard_state = load_file(str(model_path / shard_name), device="cpu")
+        compatible_state = {
+            key: value for key, value in shard_state.items() if key in model_keys
+        }
+        ignored_keys.update(set(shard_state) - set(compatible_state))
+        model.load_state_dict(compatible_state, strict=False, assign=False)
+        loaded_keys.update(compatible_state)
+        del compatible_state
+        del shard_state
+
+    invalid_ignored = {
+        key
+        for key in ignored_keys
+        if not key.endswith("self_attn.rotary_emb.inv_freq")
+    }
+    missing_keys = model_keys - loaded_keys
+    unexpected_keys = loaded_keys - model_keys
+    if invalid_ignored or missing_keys or unexpected_keys:
+        raise RuntimeError(
+            "Incomplete LLaMA safetensors compatibility reload: "
+            f"missing={sorted(missing_keys)[:10]}, "
+            f"unexpected={sorted(unexpected_keys)[:10]}, "
+            f"invalid_ignored={sorted(invalid_ignored)[:10]}"
+        )
+
+    logger.info(
+        "Reloaded %d LLaMA tensors from %d safetensors shards; "
+        "ignored %d derived RoPE buffers",
+        len(loaded_keys),
+        len(shard_names),
+        len(ignored_keys),
     )
 
 
@@ -281,6 +335,9 @@ class Chat3D(nn.Module):
         self.config = config
         llama_model_path = config.model.llama_model_path
         self.attn_implementation = config.model.get("attn_implementation", "flash_attention_2")
+        self.force_legacy_weight_reload = getattr(
+            config.model, "force_legacy_weight_reload", False
+        )
         self.low_resource = config.model.low_resource
         self.max_txt_len = config.model.max_txt_len
         self.end_sym = config.model.end_sym
@@ -366,6 +423,8 @@ class Chat3D(nn.Module):
                     torch_dtype=torch.bfloat16,
                     attn_implementation=self.attn_implementation
                 )
+            if self.force_legacy_weight_reload:
+                _reload_llama_safetensors_compat(self.llama_model, llama_model_path)
             _refresh_llama_rotary_inv_freq(self.llama_model)
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
             # self.llama_model = self.llama_model.to("cuda")
