@@ -8,7 +8,7 @@ require_env FULL_CHECKPOINT
 output_root="${OUTPUT_DIR:-$REVIEWER_OUTPUT_ROOT/proposal_robustness/$(timestamp)}"
 mkdir -p "$output_root"
 
-for keep_count in ${PROPOSAL_COUNTS:-100 75 50 25}; do
+for keep_count in ${PROPOSAL_COUNTS:-75 50 25}; do
     run_dir="$output_root/k${keep_count}"
     mkdir -p "$run_dir"
     echo "Evaluating GeoAnchor3D with the first ${keep_count} serialized Mask3D proposals"

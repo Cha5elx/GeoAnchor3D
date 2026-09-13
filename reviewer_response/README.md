@@ -145,7 +145,7 @@ bash reviewer_response/launch_background.sh efficiency
 
 ## 7. Proposal budget robustness（仅评估，不重训）
 
-当前预处理代码按 Mask3D 结果文件的原始顺序保存 proposal，但没有保存具体 confidence 数值。因此本实验严格表述为“保留原始序列中的前 K 个 proposal”，不能写成 confidence-threshold 实验。默认在 ScanRefer 和 Multi3DRefer 上依次评估 `K=100,75,50,25`：
+当前预处理代码按 Mask3D 结果文件的原始顺序保存 proposal，但没有保存具体 confidence 数值。因此本实验严格表述为“保留原始序列中的前 K 个 proposal”，不能写成 confidence-threshold 实验。`K=100` 直接复用已有 Full 评估结果；脚本默认只在 ScanRefer 和 Multi3DRefer 上补充评估 `K=75,50,25`：
 
 ```bash
 FULL_CHECKPOINT=/absolute/path/to/geoanchor3d_full_checkpoint.pth \
@@ -155,13 +155,12 @@ FULL_CHECKPOINT=/absolute/path/to/geoanchor3d_full_checkpoint.pth \
 每个 K 的预测、配置及日志分别写到：
 
 ```text
-/data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k100/
 /data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k75/
 /data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k50/
 /data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k25/
 ```
 
-如需改变档位，可在启动前设置，例如 `PROPOSAL_COUNTS="100 80 60 40"`。该实验保持模型权重、对象编号和张量尺寸不变，只在验证集输入 mask 中移除超出预算的 proposal；因此测量的是已训练模型面对 proposal 缺失时的部署鲁棒性，而不是针对每个 K 重新优化后的上限。
+如需改变补充档位，可在启动前设置，例如 `PROPOSAL_COUNTS="80 60 40"`。该实验保持模型权重、对象编号和张量尺寸不变，只在验证集输入 mask 中移除超出预算的 proposal；因此测量的是已训练模型面对 proposal 缺失时的部署鲁棒性，而不是针对每个 K 重新优化后的上限。
 
 ## 8. LLaMA-2 backbone（baseline 与 Full 都需完整重训）
 
