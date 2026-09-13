@@ -182,16 +182,16 @@ ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf \
   bash reviewer_response/launch_background.sh llama2_full
 ```
 
-两项默认双卡，也支持通过 `TRAIN_NPROC_PER_NODE=1` 改为单卡；每卡 batch size 8、训练 3 epochs、seed 42，并使用相同训练/验证任务、学习率与 LoRA rank。默认从 `INIT_CHECKPOINT` 只加载 object/image projector 等非语言侧权重；所有 `llama_model.*` 权重（包括 Vicuna LoRA、embedding 和 LM head）都会明确排除。这样两项使用同一个 LLaMA-2 语言初始化和同一个多模态初始化，比较的是 GeoAnchor3D 模块在新骨干上的增益。单卡时 baseline 与 Full 必须都使用同一张卡和同一设置；由于全局 batch size 从 16 变为 8，不应把这两项的绝对值与双卡训练结果作严格的优化设置对照。
+两项默认双卡，也支持通过 `TRAIN_NPROC_PER_NODE=1` 改为单卡；每卡 batch size 默认 8，可用 `BACKBONE_BATCH_SIZE` 覆盖；训练 3 epochs、seed 42，并使用相同训练/验证任务、学习率与 LoRA rank。默认从 `INIT_CHECKPOINT` 只加载 object/image projector 等非语言侧权重；所有 `llama_model.*` 权重（包括 Vicuna LoRA、embedding 和 LM head）都会明确排除。这样两项使用同一个 LLaMA-2 语言初始化和同一个多模态初始化，比较的是 GeoAnchor3D 模块在新骨干上的增益。单卡时 baseline 与 Full 必须都使用同一张卡、相同 batch size 和其他相同设置；若单卡仍设为 8，则数据全局 batch size 从 16 变为 8，不应把这两项的绝对值与双卡训练结果作严格的优化设置对照。
 
 例如只使用物理 GPU 2：
 
 ```bash
-TRAIN_NPROC_PER_NODE=1 CUDA_VISIBLE_DEVICES=2 \
+TRAIN_NPROC_PER_NODE=1 CUDA_VISIBLE_DEVICES=2 BACKBONE_BATCH_SIZE=8 \
   ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf \
   bash reviewer_response/launch_background.sh llama2_baseline
 
-TRAIN_NPROC_PER_NODE=1 CUDA_VISIBLE_DEVICES=2 \
+TRAIN_NPROC_PER_NODE=1 CUDA_VISIBLE_DEVICES=2 BACKBONE_BATCH_SIZE=8 \
   ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf \
   bash reviewer_response/launch_background.sh llama2_full
 ```

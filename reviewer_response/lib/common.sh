@@ -132,6 +132,11 @@ run_backbone_training() {
     fi
 
     local train_nproc="${TRAIN_NPROC_PER_NODE:-2}"
+    local backbone_batch_size="${BACKBONE_BATCH_SIZE:-8}"
+    if ! [[ "$backbone_batch_size" =~ ^[1-9][0-9]*$ ]]; then
+        echo "BACKBONE_BATCH_SIZE must be a positive integer, got: $backbone_batch_size" >&2
+        exit 2
+    fi
     if [[ "$train_nproc" -ne 1 && "$train_nproc" -ne 2 ]]; then
         echo "Backbone training supports 1 or 2 GPUs, got: $train_nproc" >&2
         exit 2
@@ -161,7 +166,7 @@ run_backbone_training() {
         auto_resume False \
         wandb.enable "${ENABLE_WANDB:-False}" \
         gpu_num "$train_nproc" \
-        batch_size 8 \
+        batch_size "$backbone_batch_size" \
         train_tag "$TRAIN_TAG" \
         val_tag "$VAL_TAG" \
         model.llama_model_path "$ALT_LLM_PATH" \
