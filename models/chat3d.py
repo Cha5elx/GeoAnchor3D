@@ -13,7 +13,7 @@ import numpy as np
 import einops
 from torch.nn.utils.rnn import pad_sequence
 
-from .modeling_llama import LlamaForCausalLM
+from .modeling_llama import LlamaForCausalLM, LlamaRotaryEmbedding
 from transformers import LlamaTokenizer, LlamaConfig
 from models.position_embedding import PositionEmbeddingCoordsSine
 from peft import LoraConfig, get_peft_model
@@ -32,6 +32,44 @@ from utils.efficiency import build_generation_kwargs
 logger = logging.getLogger(__name__)
 
 # torch.autograd.set_detect_anomaly(True)
+
+
+def _refresh_llama_rotary_inv_freq(model):
+    """Rebuild non-persistent RoPE buffers after loading older custom LLaMA code."""
+    checked = 0
+    refreshed = 0
+    for module in model.modules():
+        if not isinstance(module, LlamaRotaryEmbedding):
+            continue
+
+        checked += 1
+        device = module.inv_freq.device
+        if device.type == "meta":
+            raise RuntimeError("RoPE inv_freq remained on the meta device after loading")
+
+        expected_inv_freq = 1.0 / (
+            module.base
+            ** (
+                torch.arange(0, module.dim, 2, dtype=torch.float32, device=device)
+                / module.dim
+            )
+        )
+
+        is_valid = (
+            module.inv_freq.shape == expected_inv_freq.shape
+            and bool(torch.isfinite(module.inv_freq).all())
+            and bool(torch.allclose(module.inv_freq.float(), expected_inv_freq))
+        )
+        if not is_valid:
+            module.inv_freq = expected_inv_freq
+            refreshed += 1
+
+    logger.info(
+        "Checked %d RoPE inv_freq buffers; refreshed %d invalid buffers",
+        checked,
+        refreshed,
+    )
+
 
 def nclamp(input, min, max):
     return input.clamp(min=min, max=max).detach() + input - input.detach()
@@ -328,6 +366,7 @@ class Chat3D(nn.Module):
                     torch_dtype=torch.bfloat16,
                     attn_implementation=self.attn_implementation
                 )
+            _refresh_llama_rotary_inv_freq(self.llama_model)
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
             # self.llama_model = self.llama_model.to("cuda")
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
