@@ -1,0 +1,60 @@
+% Reviewer 2 -- current working draft, 2026-09-11.
+% Source: supplied Response2Reviewers.md and SGR/docs/GeoAnchor3D.tex.
+% Input this file from the reference main.tex; do not add a second reviewer heading.
+% Requires color comment, lengths comafter/resafter, and hyperref (or url).
+% Section numbers refer to the supplied manuscript, not this response document.
+% Visible pending notes are editorial markers and must be resolved before submission.
+
+
+{\noindent\color{comment}
+\textbf{Comment 1:}
+The notation for multi-head attention requires further clarification. The current formulations of $\mathbf{A}_{\mathrm{sem}}$ and $\mathbf{A}_{\mathrm{fused}}$ do not explicitly include a head dimension, whereas the gating coefficient is written as $\alpha_h$. The authors should use consistent head indices for $\mathbf{A}_{\mathrm{sem}}$, $\mathbf{M}_{\mathrm{spatial}}$, and $\mathbf{A}_{\mathrm{fused}}$, and explain the per-head computation, the aggregation of multi-head outputs, and the precise definition of $\operatorname{Normalize}(\ast)$, so that the mathematical formulation fully corresponds to the implementation.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 1:}
+Thank you for identifying the ambiguity in the IGGA formulation. We have revised the notation to explicitly index the query, key, value, semantic attention, fused attention, and output representations by attention head. We now state that the geometric compatibility matrix is shared across heads, whereas its contribution is controlled by an instruction-conditioned head-specific gate. We have also made the normalization operation after geometric modulation explicit and corrected the inconsistent object indices in the descriptor definition. These revisions align the mathematical description with the implementation and make the information flow through IGGA unambiguous.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 2:}
+The relationship between ``instruction-aware'' and ``task-adaptive'' should be clarified. The current gating supervision uses task types as priors. The authors should further explain the relationship between task-type supervision and instruction-content-driven routing.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 2:}
+We thank the reviewer for this clarification. ``Instruction-aware'' describes the gate input: a pooled instruction embedding predicts the head-specific coefficients. ``Task-adaptive'' describes their regulation across task demands. During training, task labels supply soft gate targets, while the language modeling objective also optimizes the gates; these are complementary sources of supervision.
+
+The new analyses in Section~IV-C examine both effects. Removing $\mathcal{L}_{\mathrm{gate}}$ lowers ScanRefer Acc@0.5 from 51.1\% to 50.9\%. Within ScanRefer, mean gates also vary with instruction content despite a shared task prior. These findings support a coarse task prior with finer within-task variation, rather than routing independent of task supervision. See \textit{Gating Granularity and Supervision} and \textit{Within-Task Gate Variation}.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 3:}
+The advantage of the per-head design could be explained more clearly. Table 3 shows that learnable gating outperforms fixed gating, but it does not isolate the contribution of per-head gating from that of a shared scalar gate.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 3:}
+We thank the reviewer for this suggestion. We added a learnable instruction-conditioned scalar shared by all heads, retaining GATH and the same four-dataset training protocol for all variants. Per-head gating raises ScanRefer Acc@0.5 from 50.6\% to 51.1\%, Multi3DRefer F1@0.5 from 54.1\% to 54.6\%, and ScanQA CIDEr from 88.6 to 89.9; Scan2Cap CIDEr@0.5 remains 77.2. Since both gates are learnable and instruction-conditioned, this comparison directly tests head granularity.
+
+The original gating-design ablation was trained on ScanRefer and ScanQA only. The new controlled ablation uses all four datasets jointly, explaining the different reference scores across the two tables. The relevant comparisons are between variants within each training setting. See \textit{Controlled ablation of gating granularity and gate supervision} in Section~IV-C.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 4:}
+The relationship with the underlying framework should be stated more explicitly. The authors should clarify that GeoAnchor3D is built upon a Chat-Scene-style object-level representation framework and more clearly distinguish the proposed method from static fusion approaches.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 4:}
+We thank the reviewer for this comment. Section~III-A now explicitly identifies the inherited Chat-Scene components: object-centric preprocessing, Mask3D proposals, object identifiers, Uni3D and DINOv2 features, and the language-model interface. IGGA adds instruction-conditioned geometric modulation to object--object attention, while GATH adds coordinate supervision to intermediate LLM representations during training. Unlike fixed fusion, IGGA adjusts geometric modulation by instruction and attention head. The contribution is thus defined within the retained object-centric framework.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 5:}
+The scope of the conclusions should be appropriately limited. The current evaluation mainly focuses on ScanNet-based indoor scenes and related tasks. The authors should avoid directly extending the conclusions to open-world settings, dynamic environments, or different 3D backbones.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 5:}
+We agree that the conclusions must match the evaluation scope. The revised Introduction and Conclusion restrict the empirical findings to the evaluated ScanNet-based indoor benchmarks. Section~V explicitly distinguishes within-domain multi-task adaptation from unseen-task and cross-domain generalization, and lists outdoor environments, dynamic scenes, and different 3D backbones as untested directions.
+\vspace{\resafter}

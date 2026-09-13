@@ -26,10 +26,21 @@ case "$experiment" in
         resolve_full_checkpoint
         script="reviewer_response/run_efficiency.sh"
         ;;
+    proposal_robustness)
+        resolve_full_checkpoint
+        script="reviewer_response/run_proposal_robustness.sh"
+        ;;
+    llama2_baseline)
+        script="reviewer_response/run_llama2_baseline.sh"
+        ;;
+    llama2_full)
+        script="reviewer_response/run_llama2_full.sh"
+        ;;
     *)
         echo "Usage: bash reviewer_response/launch_background.sh EXPERIMENT" >&2
         echo "Experiments: full_per_head, dynamic_scalar, per_head_no_gate," >&2
-        echo "             within_task_gating, layerwise_geometry_probe, efficiency" >&2
+        echo "             within_task_gating, layerwise_geometry_probe, efficiency," >&2
+        echo "             proposal_robustness, llama2_baseline, llama2_full" >&2
         exit 2
         ;;
 esac

@@ -24,6 +24,9 @@ model.fixed_gate_value=0.5
 | ScanRefer 内部 gate 分析 | 同一 task 内是否随指令复杂度变化 | 现有 checkpoint 评估+统计 | **否** | `run_within_task_gating.sh` |
 | Layer-wise geometry probe | 深层几何遗忘及 GATH 缓解作用 | 冻结主模型+训练小线性头 | **否** | `run_layerwise_geometry_probe.sh` |
 | 参数/延迟/显存/训练步成本 | IGGA 推理开销与 GATH 训练开销 | 现有 checkpoint benchmark | **否** | `run_efficiency.sh` |
+| Proposal budget robustness | Mask3D proposal 数量变化的敏感性 | 同一 Full checkpoint 评估 | **否** | `run_proposal_robustness.sh` |
+| LLaMA-2 Chat-Scene-style baseline | 更换 LLM 后的受控基线 | 完整训练 | **是，3 epochs** | `run_llama2_baseline.sh` |
+| LLaMA-2 GeoAnchor3D Full | 更换 LLM 后的完整方法 | 完整训练 | **是，3 epochs** | `run_llama2_full.sh` |
 
 “训练小线性头”只拟合每层 `hidden state -> (x,y,z)` 的探针，不更新 Chat-Scene 或 GeoAnchor3D。
 
@@ -140,13 +143,55 @@ bash reviewer_response/launch_background.sh efficiency
 
 正式比较必须在同一 GPU、相同 attention kernel、dtype、batch、序列设置和空闲机器状态下连续运行。GATH 的“零推理开销”应与整个 GeoAnchor3D 的开销分开表述：GATH 推理时不执行，但 IGGA 仍执行。
 
+## 7. Proposal budget robustness（仅评估，不重训）
+
+当前预处理代码按 Mask3D 结果文件的原始顺序保存 proposal，但没有保存具体 confidence 数值。因此本实验严格表述为“保留原始序列中的前 K 个 proposal”，不能写成 confidence-threshold 实验。默认在 ScanRefer 和 Multi3DRefer 上依次评估 `K=100,75,50,25`：
+
+```bash
+FULL_CHECKPOINT=/absolute/path/to/geoanchor3d_full_checkpoint.pth \
+  bash reviewer_response/launch_background.sh proposal_robustness
+```
+
+每个 K 的预测、配置及日志分别写到：
+
+```text
+/data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k100/
+/data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k75/
+/data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k50/
+/data/lcx/chat-scene01/outputs/reviewer_response/proposal_robustness/<time>/k25/
+```
+
+如需改变档位，可在启动前设置，例如 `PROPOSAL_COUNTS="100 80 60 40"`。该实验保持模型权重、对象编号和张量尺寸不变，只在验证集输入 mask 中移除超出预算的 proposal；因此测量的是已训练模型面对 proposal 缺失时的部署鲁棒性，而不是针对每个 K 重新优化后的上限。
+
+## 8. LLaMA-2 backbone（baseline 与 Full 都需完整重训）
+
+建议使用 `Llama-2-7b-chat-hf`，因为它与 Vicuna 一样是 instruction/chat-tuned 7B 模型，比较比 base LLaMA-2 更对等。当前自定义 LLaMA 实现和约 24GB/卡的训练预算不适合直接切换到 LLaMA-3-8B：其 tokenizer 与词表显著不同，当前训练还会解冻 embedding 和 LM head，容易产生兼容问题和显存大幅增加。
+
+先把 LLaMA-2 放到服务器本地，并设置：
+
+```bash
+export ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf
+```
+
+然后按顺序后台运行：
+
+```bash
+ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf \
+  bash reviewer_response/launch_background.sh llama2_baseline
+
+ALT_LLM_PATH=/absolute/path/to/Llama-2-7b-chat-hf \
+  bash reviewer_response/launch_background.sh llama2_full
+```
+
+两项都固定双卡、每卡 batch size 8、3 epochs、seed 42，并使用相同训练/验证任务、学习率与 LoRA rank。默认从 `INIT_CHECKPOINT` 只加载 object/image projector 等非语言侧权重；所有 `llama_model.*` 权重（包括 Vicuna LoRA、embedding 和 LM head）都会明确排除。这样两项使用同一个 LLaMA-2 语言初始化和同一个多模态初始化，比较的是 GeoAnchor3D 模块在新骨干上的增益。
+
+这里必须同时报告 LLaMA-2 baseline 与 LLaMA-2 Full；只报告 LLaMA-2 Full，或拿它直接与 Vicuna baseline 比较，都不能证明模块的 backbone generalizability。
+
 ## 暂不主动实现的审稿要求
 
-- **Proposal 数量/阈值**：100 proposals 是继承自 Chat-Scene 的受控上游配置，不是 GeoAnchor3D 新引入的超参数。建议在限制中承认 proposal quality 上界；若 AE 明确要求数值结果，再补 top-K/threshold 评估。
 - **Handcrafted vs learned geometry**：会新增至少一个完整训练 setting，但对核心 per-head/GATH 因果链的解释力低于 P0 项。本轮先澄清 handcrafted descriptor 本身不是创新点。
 - **三随机种子**：成本高。若 AE 要求统计显著性，应对 baseline、Full 和核心两个消融使用相同 seeds 重训，而不是只给 Full 补 seeds。
-- **第二 LLM、13B、held-out task、跨域数据**：超出 mandatory minor 的合理范围。建议缩窄 backbone-agnostic、unseen-task 和 domain-generalization 措辞。
-- **Proposal perturbation**：若后续必须补，优先做 checkpoint-only 的 top-K/box-noise 受控评估，并同时报告 target proposal recall，避免把 detector recall 下降误归因于 IGGA。
+- **13B、held-out task、跨域数据**：当前仍超出这轮新增实验范围；建议缩窄相应的强泛化措辞。
 
 ## 结果解释底线
 

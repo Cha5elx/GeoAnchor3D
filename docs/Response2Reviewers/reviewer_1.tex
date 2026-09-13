@@ -1,0 +1,64 @@
+% Reviewer 1 -- current working draft, 2026-09-11.
+% Source: supplied Response2Reviewers.md and SGR/docs/GeoAnchor3D.tex.
+% Input this file from the reference main.tex; do not add a second reviewer heading.
+% Requires color comment, lengths comafter/resafter, and hyperref (or url).
+% Section numbers refer to the supplied manuscript, not this response document.
+% Visible pending notes are editorial markers and must be resolved before submission.
+
+
+{\noindent\color{comment}
+\textbf{Comment 1:}
+The core geometric encoding used in IGGA (Euclidean distance, azimuth, and elevation angles with sine/cosine encoding) is a well-established technique in 3D point cloud processing and spatial relation reasoning (e.g., the authors cite [5]). While the application of these cues within a per-head gating mechanism is novel, the paper would benefit from a more explicit discussion of what distinguishes the proposed geometric representation from prior work. Specifically, the authors should clarify whether any learnable spatial embeddings were considered (as briefly mentioned in Section V) and why the handcrafted encoding was preferred. A comparative experiment between handcrafted geometric features and learned spatial embeddings would substantiate this design choice.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 1:}
+We thank the reviewer for this comment. Distance and angular encodings are established descriptors; our contribution is their instruction-conditioned, per-head use in object attention. We chose an explicit five-dimensional descriptor to provide a compact, interpretable spatial prior, while retaining a learnable compatibility projection, as formulated in Section~III-B. This separates the geometric quantities from the learned way in which they influence attention.
+
+The current experiments examine geometric routing with this descriptor, rather than comparing alternative spatial encoders. We do not claim that handcrafted features outperform learned embeddings. Such a comparison would assess a separate representation choice, which Section~V identifies as future work.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 2:}
+The entire framework relies on Mask3D-generated object proposals as input, which the authors acknowledge as a limitation in Section V. However, the paper does not provide any quantitative analysis of how proposal quality affects downstream performance. A sensitivity analysis---for instance, varying the number of proposals (currently fixed at 100) or evaluating performance under different Mask3D confidence thresholds---would help readers understand the robustness boundary of GeoAnchor3D. Furthermore, the performance on Multi3DRefer, which involves multi-object scenes, may be particularly sensitive to missed or merged proposals, and this should be discussed.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 2:}
+We thank the reviewer for highlighting proposal sensitivity. Our comparison asks whether geometric regulation improves downstream reasoning given the same detected objects. GeoAnchor3D therefore retains the 100 Mask3D proposals per scene used by Chat-Scene, so its gains are evaluated with predicted proposals rather than oracle objects and cannot be attributed to an improved proposal generator.
+
+Section~V now explains that missed, severely fragmented, or merged proposals limit downstream reasoning. This is particularly relevant to Multi3DRefer, where multiple referred objects must be identified. We acknowledge this dependency; the current comparison does not measure sensitivity to proposal budgets or confidence thresholds.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 3:}
+The authors emphasize that GATH introduces no inference overhead, which is a strength. Nevertheless, the training-time cost of GATH and IGGA is not quantified. Specifically, the additional computational burden of (a) computing pairwise spatial masks in IGGA, (b) GATH's horizontal and vertical aggregation over multiple LLM layers, and (c) the gating supervision loss Lgate should be reported in terms of training time or GPU memory compared to the baseline. This information is important for practitioners who may have limited computational resources.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 3:}
+We thank the reviewer for requesting this analysis. The new efficiency comparison in Section~IV-C measures both models on one NVIDIA RTX 3090 with batch size~1 and FlashAttention-2. Forward--backward time increases from 547.87 to 553.81~ms per sample (+1.08\%), and peak allocated training memory increases from 14.920 to 15.164~GiB (+1.63\%). These measurements exclude data transfer and optimizer updates, so they do not represent full training-step or end-to-end training time.
+
+The results quantify the combined cost of IGGA, GATH, and the auxiliary objectives; they do not separately profile spatial-mask computation, GATH aggregation, or $\mathcal{L}_{\mathrm{gate}}$. GATH is removed at inference, whereas IGGA remains active. Please see the table entitled \textit{Efficiency comparison on one NVIDIA RTX 3090}.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 4:}
+All experiments are conducted with Vicuna-7B-v1.5 as the sole LLM backbone. Given that the proposed modules (IGGA and GATH) are designed to be backbone-agnostic, it is important to validate their effectiveness across different LLM architectures and scales. At minimum, results with LLaMA-2-7B or LLaMA-3-8B would demonstrate generalizability. Additionally, the paper would benefit from experiments with a larger LLM (e.g., Vicuna-13B) to investigate whether the benefits of hierarchical spatial regulation persist or diminish at larger scales, as larger models may inherently exhibit different modality integration behaviors.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 4:}
+We agree that testing additional LLM families and scales would establish the scope of transferability more directly. Here, we retain Chat-Scene's Vicuna-7B-v1.5 backbone to evaluate the proposed geometric regulation within the same object-centric framework, without introducing backbone changes into the comparison.
+
+The current results establish effectiveness in this setting, not empirical backbone independence. Section~V identifies evaluation with other language-model backbones as future work, and our conclusions are restricted to the evaluated framework and benchmarks.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 5:}
+The performance improvements over Chat-Scene, while consistent, are relatively modest in absolute terms (e.g., +1.0\% Acc@0.25 on ScanRefer, +0.9\% Acc@0.5). The paper does not report standard deviations or confidence intervals across multiple runs, making it difficult to assess whether these gains are statistically significant. Given the inherent randomness in LLM fine-tuning with LoRA, the authors should report mean and standard deviation over at least three random seeds. Furthermore, the paper should discuss whether the LoRA rank (16), learning rate schedule, and loss weights ($\lambda_{\mathrm{gate}}=1.0$, $\lambda_{\mathrm{coord}}=0.1$) were tuned, and provide sensitivity analyses for these hyperparameters.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 5:}
+\textit{[Response pending: three-seed results and the hyperparameter tuning/sensitivity analysis are not provided in the current materials. No statistical-significance claim is made.]}
+\vspace{\resafter}

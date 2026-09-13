@@ -347,6 +347,12 @@ scheduler = dict(sched="cosine", epochs=3, min_lr_multi=0.01, warmup_epochs=0.1)
 
 evaluate = False
 
+# Reviewer-response controls. A value of 0 keeps all serialized proposals.
+proposal_keep_count = 0
+# When changing the LLM backbone, reuse only the non-LLM multimodal weights
+# from pretrained_path instead of mixing language-model parameters.
+pretrained_exclude_llm = False
+
 # Opt-in efficiency measurement. Existing training/validation ignores these
 # values unless a standalone efficiency script is launched with an output path.
 eval_efficiency_output = ""

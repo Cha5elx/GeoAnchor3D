@@ -1,0 +1,137 @@
+% Reviewer 3 -- current working draft, 2026-09-11.
+% Source: supplied Response2Reviewers.md and SGR/docs/GeoAnchor3D.tex.
+% Input this file from the reference main.tex; do not add a second reviewer heading.
+% Requires color comment, lengths comafter/resafter, and hyperref (or url).
+% Section numbers refer to the supplied manuscript, not this response document.
+% Visible pending notes are editorial markers and must be resolved before submission.
+
+
+{\noindent\color{comment}
+\textbf{Comment 1:}
+The distinction between ``instruction-aware'' routing and task-type supervision should be clarified more carefully.The paper emphasizes that IGGA adaptively regulates geometric information according to individual instructions. However, during training, the gating coefficients are explicitly encouraged toward  for grounding tasks and for question answering and captioning tasks. This raises the question of whether IGGA truly learns fine-grained instruction-level routing, or mainly behaves as an implicit task classifier.  The authors are encouraged to include an ablation without L, as well as a finer-grained analysis within the same task category according to instruction spatial complexity.
+}\vspace{\comafter}
+
+\noindent\textit{[Source note: the supplied reviewer comment omits the numerical gate targets and the loss subscript. Check the original review before submission; the missing symbols have not been reconstructed.]}
+
+\noindent\textbf{Response 1:}
+We thank the reviewer for proposing these two tests. Section~IV-C now reports an ablation without $\mathcal{L}_{\mathrm{gate}}$ and a within-task analysis grouped by the number of explicit spatial relations.
+
+Without the gate prior, ScanRefer Acc@0.5 and Multi3DRefer F1@0.5 decrease from 51.1\%/54.6\% to 50.9\%/54.4\%. ScanQA results are mixed: BLEU-4 increases from 14.2 to 14.3, while CIDEr decreases from 89.9 to 89.7. Thus, the prior provides modest benefits in this comparison, but is not necessary for learning useful gates.
+
+Holding the task fixed on ScanRefer, mean gates are 0.8972, 0.8938, and 0.8846 for zero, one, and at least two explicit relations, respectively. This variation rules out a strictly constant task-level gate, but does not by itself prove fine-grained spatial understanding. Gates remain strongly influenced by the grounding prior, and their decrease with relation count should not be interpreted as reduced need for geometry. Retaining more unrestricted semantic attention is a possible explanation, rather than an established causal result.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 2:}
+The ablation of the gating mechanism is insufficient to justify the necessity of per-head gating.Table III mainly compares a fixed ($\alpha_h=0.5$) strategy with learnable gating. However, one of the key methodological claims is that per-head instruction-conditioned gating is superior to coarse or scalar routing.  It would therefore be more convincing to compare scalar instruction-conditioned gating, layer-wise gating, and per-head gating under otherwise identical settings. Such experiments would better isolate whether the gain comes from learnability itself or specifically from the proposed per-head design.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 2:}
+We agree that learnability and head granularity should be separated. The new ablation in Section~IV-C retains GATH and jointly trains all variants on the four datasets. Per-head gating improves ten of eleven metrics over a dynamic shared scalar and ties Scan2Cap CIDEr@0.5. Both ScanRefer Acc@0.5 and Multi3DRefer F1@0.5 improve by 0.5 percentage points. Unlike this joint-training experiment, the original fixed-versus-learnable gating comparison used only ScanRefer and ScanQA for training; its scores are therefore not directly comparable across tables.
+
+The scalar control tests granularity at IGGA's existing pre-LLM insertion point. Layer-wise gating would additionally change the insertion points and architecture, so it is not included in this controlled comparison. Our conclusion concerns per-head versus shared-scalar gating at the same location.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 3:}
+The central motivation of ``deep-layer geometric forgetting'' lacks sufficiently direct quantitative evidence.The manuscript treats progressive geometric degradation in deeper LLM layers as one of its two major motivating problems, and GATH is explicitly designed to address this issue.  However, the current evidence is largely conceptual or indirect. The paper would benefit substantially from layer-wise probing experiments, for example predicting object coordinates, relative positions, or spatial relations from hidden states at different depths. A comparison between the baseline and GeoAnchor3D could directly demonstrate whether geometric information indeed decays with depth and whether GATH alleviates this degradation.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 3:}
+We thank the reviewer for requesting direct evidence. We added independent linear probes for scene-centered object coordinates at layers 4, 8, 12, 16, 20, 24, 28, and 32 of the frozen models, using the same split of 76 training scenes and 24 held-out test scenes.
+
+GeoAnchor3D obtains lower RMSE and higher mean $R^2$ at all eight depths. Average RMSE decreases from 1.3352 to 1.0609 (20.55\%), and mean $R^2$ increases from $-0.0066$ to 0.2540. At layer~32, $R^2$ is 0.1876 versus $-0.0489$ for Chat-Scene. These results quantify stronger coordinate recoverability throughout the evaluated hierarchy, including deep layers.
+
+The component ablation separately supports GATH's contribution to task performance. The probing experiment evaluates the complete framework and does not isolate GATH or establish strictly monotonic decay. Together, these analyses provide evidence of task benefits and framework-level geometric retention. Both are reported in Section~IV-C.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 4:}
+The justification for selecting intermediate layers for GATH should be strengthened.Table IV suggests that layers 17--24 achieve the best overall performance, but the numerical differences among different layer intervals are relatively small.  Without variance estimates, it is difficult to determine whether the claimed inverted-U trend is statistically meaningful or simply caused by training fluctuations. Reporting mean and standard deviation over multiple runs, or validating the same phenomenon with another backbone, would provide stronger support for the argument that intermediate layers offer the optimal balance between geometric fidelity and semantic abstraction.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 4:}
+We agree that the differences among layer intervals are modest. In Section~IV-C, we have replaced the description of an inverted-U trend with the statement that performance varies across the selected layer intervals. Layers 17--24 achieve the highest ScanRefer Acc@0.5 (50.7\%) and ScanQA CIDEr (87.9), although not the highest BLEU-4. These results support the selected interval under the evaluated setting.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 5:}
+The relatively modest improvements over strong baselines warrant statistical stability analysis.For example, GeoAnchor3D improves ScanRefer Acc@0.5 from 50.2 to 51.1 compared with Chat-Scene, while the ScanQA CIDEr score increases from 87.7 to 89.9. At the same time, BLEU-4 is slightly lower on both ScanQA and Scan2Cap.  Given the relatively small margins on several metrics, reporting results over multiple random seeds with mean and standard deviation would help establish whether the improvements consistently exceed normal optimization variance.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 5:}
+\textit{[Response pending: results over multiple random seeds are not provided in the current materials. The final response should report mean and standard deviation and retain the lower BLEU-4 results on ScanQA and Scan2Cap.]}
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 6:}
+The claim of task-adaptive generalization is stronger than what is currently demonstrated.The evaluation covers grounding, question answering, and dense captioning, which is certainly broader than a single-task setting. However, these task categories are also included during training, so the experiments mainly demonstrate multi-task adaptation rather than genuine unseen-task generalization.  A held-out-task experiment, where one task type is excluded during training and evaluated only at test time, would more directly support the claimed cross-task generalization ability.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 6:}
+We agree that evaluating task families included in training does not establish unseen-task generalization. No held-out-task experiment is included in this revision. Section~V now explicitly characterizes the results as within-domain multi-task adaptation and identifies held-out-task evaluation as future work. The Conclusion likewise excludes generalization to unseen task families from the supported claims.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 7:}
+Domain generalization emains insufficiently evaluated because all four benchmarks are ScanNet-based.The manuscript evaluates ScanRefer, Multi3DRefer, ScanQA, and Scan2Cap, all of which are built upon ScanNet.  Although these datasets represent different tasks, they do not provide strong evidence of scene-domain generalization. Since the proposed method explicitly relies on geometric relationships, evaluation on at least one dataset from a different 3D scene distribution would significantly strengthen the generalization claim. Otherwise, the manuscript should narrow its wording to multi-task generalization within the ScanNet domain.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 7:}
+We agree that task diversity and scene-domain diversity are different. The Datasets paragraph in Section~IV-A now states that all four benchmarks share the ScanNet indoor-scene distribution. Accordingly, the Introduction and Conclusion limit the findings to this domain, and Section~V identifies cross-domain evaluation as future work. No experiment on a different scene distribution is included in the current revision.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 8:}
+The statement regarding ``no additional inference overhead'' should be made more precise.It is correct that GATH is used only during training and therefore introduces no inference-time cost.  However, IGGA remains active during inference and involves the gating network, pairwise spatial masks, and additional attention-based fusion. Therefore, the manuscript should distinguish between ``GATH introduces no inference overhead'' and ``GeoAnchor3D introduces no inference overhead.'' The authors should ideally report parameter count, FLOPs, latency, GPU memory usage, or throughput to quantify the actual computational cost of IGGA.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 8:}
+We agree that the zero-inference-overhead statement applies specifically to GATH, which is discarded at inference; IGGA remains active. Section~IV-C reports 14.71M additional parameters (+0.216\%) for the framework and peak allocated inference memory of 14.145~GiB versus 14.090~GiB for Chat-Scene (+0.39\%).
+
+Both models are benchmarked with the same inputs and inference configuration: one RTX 3090, batch size~1, FlashAttention-2, and greedy generation of exactly 32 tokens. Measured latency is 1993.78~ms for GeoAnchor3D and 2491.18~ms for Chat-Scene. We report this as a measured result under the controlled benchmark, not an inherent acceleration property of IGGA. Thus, the framework incurs additional parameters and memory, while no latency penalty is observed in this setting.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 9:}
+The dependence on Mask3D proposals deserves more systematic robustness analysis.The entire framework relies on 100 object proposals extracted by Mask3D, followed by Uni3D and DINOv2 feature encoding.  The authors also acknowledge that proposal quality may become a bottleneck in cluttered, occluded, or open-world environments.  It would be useful to evaluate the method under different proposal qualities, for example using ground-truth proposals, alternative proposal generators, or artificially perturbed bounding boxes. Such experiments would reveal whether the gains of IGGA and GATH remain robust when the upstream detector is imperfect.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 9:}
+We thank the reviewer for these suggestions. The experiments retain Chat-Scene's predicted Mask3D proposals so that the comparison evaluates the proposed reasoning modules under a fixed upstream detector. This tests whether IGGA and GATH provide benefits with the same imperfect object inputs, without confounding those benefits with changes in proposal generation.
+
+It does not establish robustness across detector qualities. Section~V explicitly acknowledges missed, severely fragmented, and merged proposals as limitations of downstream reasoning. Oracle proposals, alternative detectors, and box perturbations would characterize this separate robustness dimension; these experiments are not included, and our claims remain confined to the shared Mask3D setting.
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 10:}
+The evidence for topology preservation in GATH should not rely primarily on t-SNE visualization.Figure 8 shows that intermediate-layer representations exhibit clustering patterns related to physical X-axis positions, and this is used as evidence that GATH preserves spatial topology.  However, t-SNE is designed mainly for visualization and does not reliably preserve global distances. Quantitative measurements would make this claim much stronger, such as the Spearman correlation between hidden-space distances and physical 3D distances, neighborhood-preservation metrics, relative-position probing accuracy, or linear-probe comparisons between the baseline and GATH-enabled models.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 10:}
+We agree that t-SNE should serve as qualitative support rather than a quantitative test of topology preservation. Section~IV-C now provides linear coordinate probes: GeoAnchor3D improves RMSE and mean $R^2$ at every evaluated depth, with average $R^2$ increasing from $-0.0066$ to 0.2540. This directly measures coordinate recoverability. The component ablation addresses GATH's task contribution separately; neither analysis is presented as an isolated test of GATH's global-distance preservation.
+
+\textit{[Manuscript alignment pending: describe the t-SNE pattern in Section~IV-D as a qualitative association with physical coordinates and refer to the probes for quantitative framework-level evidence.]}
+\vspace{\resafter}
+
+
+{\noindent\color{comment}
+\textbf{Comment 11:}
+The current references are authoritative; however, the proportion of recent literature is relatively low. It is recommended to incorporate more up-to-date studies published in 2025--2026, particularly from leading conferences and journals such as TGRS, ISPRS. For example:  
+\url{https://doi.org/10.1016/j.jag.2026.105251} ;
+\url{https://doi.org/10.1016/j.isprsjprs.2026.06.041};
+\url{https://doi.org/10.1016/j.isprsjprs.2026.06.023}.
+}\vspace{\comafter}
+
+\noindent\textbf{Response 11:}
+We thank the reviewer for these recommendations. The three suggested studies have been added to Section~II-A, extending the discussion of spatial structure to terrain matching, cross-sensor correspondence, and DEM reconstruction. They provide broader geometric context; GeoAnchor3D focuses on instruction-conditioned object interaction for indoor multimodal scene understanding.
+\vspace{\resafter}

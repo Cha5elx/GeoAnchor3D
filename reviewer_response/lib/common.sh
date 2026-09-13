@@ -113,3 +113,67 @@ run_ablation_training() {
         lora.lora_r "${LORA_RANK:-16}" \
         seed "${SEED:-42}"
 }
+
+run_backbone_training() {
+    local experiment="$1"
+    local use_spatial_attention="$2"
+    local use_geometry_aux="$3"
+    local use_gate_supervision="$4"
+    local gate_loss_weight="$5"
+    local coord_loss_weight="$6"
+
+    require_env ALT_LLM_PATH
+    require_env INIT_CHECKPOINT
+    require_env TRAIN_TAG
+    require_env VAL_TAG
+    if [[ "$ALT_LLM_PATH" == "$LLM_PATH" ]]; then
+        echo "ALT_LLM_PATH must point to the alternative LLaMA-2 checkpoint, not Vicuna." >&2
+        exit 2
+    fi
+
+    local train_nproc="${TRAIN_NPROC_PER_NODE:-2}"
+    if [[ "$train_nproc" -ne 2 ]]; then
+        echo "Backbone training is configured for exactly 2 GPUs." >&2
+        exit 2
+    fi
+    export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+    IFS=',' read -r -a visible_devices <<< "$CUDA_VISIBLE_DEVICES"
+    if [[ "${#visible_devices[@]}" -ne 2 ]]; then
+        echo "CUDA_VISIBLE_DEVICES must contain exactly 2 GPUs, got: $CUDA_VISIBLE_DEVICES" >&2
+        exit 2
+    fi
+
+    local output_dir="${OUTPUT_DIR:-$REVIEWER_OUTPUT_ROOT/$experiment/$(timestamp)}"
+    local backbone_init="${BACKBONE_INIT_CHECKPOINT:-$INIT_CHECKPOINT}"
+    if [[ ! -f "$backbone_init" ]]; then
+        echo "Backbone initialization checkpoint does not exist: $backbone_init" >&2
+        exit 2
+    fi
+    mkdir -p "$output_dir"
+
+    NPROC_PER_NODE="$train_nproc" run_python tasks/train.py scripts/config.py \
+        output_dir "$output_dir" \
+        scheduler.epochs "${EPOCHS:-3}" \
+        optimizer.lr "${LEARNING_RATE:-5e-6}" \
+        pretrained_path "$backbone_init" \
+        pretrained_exclude_llm True \
+        evaluate False \
+        auto_resume False \
+        wandb.enable "${ENABLE_WANDB:-False}" \
+        gpu_num "$train_nproc" \
+        batch_size 8 \
+        train_tag "$TRAIN_TAG" \
+        val_tag "$VAL_TAG" \
+        model.llama_model_path "$ALT_LLM_PATH" \
+        model.add_scene_token False \
+        model.max_obj_num 100 \
+        model.use_spatial_attention "$use_spatial_attention" \
+        model.use_geometry_aux "$use_geometry_aux" \
+        model.gate_granularity per_head \
+        model.alpha_ablation_mode 0 \
+        model.use_gate_supervision "$use_gate_supervision" \
+        model.gate_loss_weight "$gate_loss_weight" \
+        model.coord_loss_weight "$coord_loss_weight" \
+        lora.lora_r "${LORA_RANK:-16}" \
+        seed "${SEED:-42}"
+}

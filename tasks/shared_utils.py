@@ -13,7 +13,13 @@ from utils.scheduler import create_scheduler
 logger = logging.getLogger(__name__)
 
 
-def load_model_state(model, state_dict):
+def load_model_state(model, state_dict, exclude_prefixes=()):
+    if exclude_prefixes:
+        state_dict = {
+            name: param
+            for name, param in state_dict.items()
+            if not name.startswith(tuple(exclude_prefixes))
+        }
     keys_to_delete = []
     model_state_dict = model.state_dict()
     for name, param in state_dict.items():
@@ -109,8 +115,31 @@ def setup_model(
             scaler.load_state_dict(checkpoint["scaler"])
             start_epoch = checkpoint["epoch"] + 1
             global_step = checkpoint["global_step"]
-        msg = load_model_state(model_without_ddp, state_dict)
-        logger.info(msg)
+        exclude_prefixes = ()
+        if config.get("pretrained_exclude_llm", False):
+            exclude_prefixes = ("llama_model.",)
+            logger.info(
+                "Excluding language-model parameters from the initialization "
+                "checkpoint."
+            )
+        msg = load_model_state(
+            model_without_ddp,
+            state_dict,
+            exclude_prefixes=exclude_prefixes,
+        )
+        if exclude_prefixes:
+            missing_non_llm = [
+                key for key in msg.missing_keys
+                if not key.startswith(exclude_prefixes)
+            ]
+            logger.info(
+                "Checkpoint load summary: missing non-LLM keys=%s; "
+                "unexpected keys=%s",
+                missing_non_llm,
+                msg.unexpected_keys,
+            )
+        else:
+            logger.info(msg)
         logger.info(f"Loaded checkpoint from {config.pretrained_path}.")
     else:
         logger.warning("No pretrained checkpoint provided, training from scratch.")

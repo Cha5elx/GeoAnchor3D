@@ -24,6 +24,12 @@ class ValDataset(BaseDataset):
         self.feat_dim = config.model.input_dim
         self.img_feat_dim = config.model.img_input_dim
         self.max_obj_num = config.model.max_obj_num
+        self.proposal_keep_count = int(config.get("proposal_keep_count", 0))
+        if self.proposal_keep_count < 0 or self.proposal_keep_count > self.max_obj_num:
+            raise ValueError(
+                "proposal_keep_count must be in [0, max_obj_num], got "
+                f"{self.proposal_keep_count}"
+            )
 
         feat_file, img_feat_file, attribute_file, anno_file = ann_list[:4]
         self.attributes = torch.load(attribute_file, map_location='cpu') if attribute_file is not None else None
@@ -54,6 +60,13 @@ class ValDataset(BaseDataset):
 
     def __getitem__(self, index):
         scene_id, scene_feat, scene_img_feat, scene_mask, scene_locs, assigned_ids, scene_text_feat = self.get_anno(index)
+        if self.proposal_keep_count:
+            # scene_mask indexes shuffled object-token slots, while assigned_ids
+            # maps each slot back to the original Mask3D proposal index. Keep the
+            # first K proposals in the serialized Mask3D output order without
+            # changing object IDs or tensor shapes.
+            proposal_ids = assigned_ids[:scene_mask.numel()]
+            scene_mask = scene_mask.bool() & (proposal_ids < self.proposal_keep_count)
         obj_id = int(self.anno[index].get('obj_id', 0))
         pred_id = int(self.anno[index].get('pred_id', 0))
         type_info = int(self.anno[index].get('sqa_type', 0))
@@ -96,4 +109,3 @@ def val_collate_fn(batch):
         "type_infos": type_infos
         # "ids": index
     }
-

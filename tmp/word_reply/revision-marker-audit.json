@@ -1,0 +1,9 @@
+{
+  "original_sha256": "ca81db5c12af27aafc541bb6c71837919c01ae2cc0b162cd7310c4cabd321ef6",
+  "added_locations": 19,
+  "unchanged_comments_and_responses": 21,
+  "resolved_note": [
+    "[Manuscript alignment pending: describe the t-SNE pattern in Section IV-D as a qualitative association with physical coordinates and refer to the probes for quantitative framework-level evidence.]"
+  ],
+  "output": "docs\\Response2Reviewers\\GeoAnchor3D_Response_Letter_with_revision_markers.docx"
+}

@@ -312,7 +312,8 @@ class Chat3D(nn.Module):
         if not self.debug:
             logger.info('Loading LLaMA')
             self.llama_tokenizer = LlamaTokenizer.from_pretrained(llama_model_path, use_fast=False, legacy=False)
-            # self.llama_tokenizer.pad_token = self.llama_tokenizer.eos_token
+            if self.llama_tokenizer.pad_token_id is None:
+                self.llama_tokenizer.pad_token = self.llama_tokenizer.eos_token
             if self.low_resource:
                 self.llama_model = LlamaForCausalLM.from_pretrained(
                     llama_model_path,
