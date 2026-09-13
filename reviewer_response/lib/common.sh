@@ -132,14 +132,14 @@ run_backbone_training() {
     fi
 
     local train_nproc="${TRAIN_NPROC_PER_NODE:-2}"
-    if [[ "$train_nproc" -ne 2 ]]; then
-        echo "Backbone training is configured for exactly 2 GPUs." >&2
+    if [[ "$train_nproc" -ne 1 && "$train_nproc" -ne 2 ]]; then
+        echo "Backbone training supports 1 or 2 GPUs, got: $train_nproc" >&2
         exit 2
     fi
     export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
     IFS=',' read -r -a visible_devices <<< "$CUDA_VISIBLE_DEVICES"
-    if [[ "${#visible_devices[@]}" -ne 2 ]]; then
-        echo "CUDA_VISIBLE_DEVICES must contain exactly 2 GPUs, got: $CUDA_VISIBLE_DEVICES" >&2
+    if [[ "${#visible_devices[@]}" -ne "$train_nproc" ]]; then
+        echo "CUDA_VISIBLE_DEVICES must contain $train_nproc GPU(s), got: $CUDA_VISIBLE_DEVICES" >&2
         exit 2
     fi
 
