@@ -1384,10 +1384,35 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
 
     @staticmethod
     def _reorder_cache(past_key_values, beam_idx):
+        if isinstance(past_key_values, Cache):
+            reorder_cache = getattr(past_key_values, "reorder_cache", None)
+            if reorder_cache is not None:
+                reordered = reorder_cache(beam_idx)
+                return past_key_values if reordered is None else reordered
+
+            batch_select_indices = getattr(
+                past_key_values, "batch_select_indices", None
+            )
+            if batch_select_indices is not None:
+                reordered = batch_select_indices(beam_idx)
+                return past_key_values if reordered is None else reordered
+
+            raise TypeError(
+                "This Transformers Cache implementation cannot reorder beam indices"
+            )
+
         reordered_past = ()
         for layer_past in past_key_values:
+            if layer_past is None:
+                reordered_past += (None,)
+                continue
             reordered_past += (
-                tuple(past_state.index_select(0, beam_idx.to(past_state.device)) for past_state in layer_past),
+                tuple(
+                    past_state.index_select(0, beam_idx.to(past_state.device))
+                    if past_state is not None
+                    else None
+                    for past_state in layer_past
+                ),
             )
         return reordered_past
 
