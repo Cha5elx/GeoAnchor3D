@@ -1351,13 +1351,18 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
             # TODO: use `next_tokens` directly instead.
             model_inputs = {"input_ids": input_ids.contiguous()}
 
-        if position_ids is not None:
-            input_length = position_ids.shape[-1]
-        elif "inputs_embeds" in model_inputs:
+        if "inputs_embeds" in model_inputs:
             input_length = inputs_embeds.shape[1]
+            if position_ids is not None:
+                if position_ids.shape[-1] < input_length:
+                    position_ids = None
+                else:
+                    position_ids = position_ids[:, -input_length:]
+        elif position_ids is not None:
+            input_length = position_ids.shape[-1]
         else:
             input_length = input_ids.shape[-1]
-        if cache_position is None:
+        if cache_position is None or cache_position.numel() < input_length:
             cache_position = torch.arange(past_length, past_length + input_length, device=input_ids.device)
         else:
             cache_position = cache_position[-input_length:]
