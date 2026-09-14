@@ -1339,8 +1339,11 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
             else:
                 position_ids = position_ids[:, :0]
 
-        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
+        # Newer Transformers versions create an empty DynamicCache before the
+        # first prefill. Treat a zero-length cache as the first generation step
+        # so multimodal inputs_embeds are not replaced by an empty input_ids.
+        is_first_generation_step = int(past_length) == 0
+        if inputs_embeds is not None and is_first_generation_step:
             model_inputs = {"inputs_embeds": inputs_embeds}
         else:
             # The `contiguous()` here is necessary to have a static stride during decoding. torchdynamo otherwise
@@ -1348,7 +1351,12 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
             # TODO: use `next_tokens` directly instead.
             model_inputs = {"input_ids": input_ids.contiguous()}
 
-        input_length = position_ids.shape[-1] if position_ids is not None else input_ids.shape[-1]
+        if position_ids is not None:
+            input_length = position_ids.shape[-1]
+        elif "inputs_embeds" in model_inputs:
+            input_length = inputs_embeds.shape[1]
+        else:
+            input_length = input_ids.shape[-1]
         if cache_position is None:
             cache_position = torch.arange(past_length, past_length + input_length, device=input_ids.device)
         else:
