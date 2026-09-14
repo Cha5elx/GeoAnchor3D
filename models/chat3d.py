@@ -16,7 +16,7 @@ import einops
 from torch.nn.utils.rnn import pad_sequence
 
 from .modeling_llama import LlamaForCausalLM, LlamaRotaryEmbedding
-from transformers import LlamaTokenizer, LlamaConfig
+from transformers import AutoTokenizer, LlamaTokenizer, LlamaConfig
 from models.position_embedding import PositionEmbeddingCoordsSine
 from peft import LoraConfig, get_peft_model
 # from models.load_llama import init_llama_model
@@ -32,6 +32,23 @@ from utils.efficiency import build_generation_kwargs
 # import visualize_features
 
 logger = logging.getLogger(__name__)
+
+
+def _load_llama3_config(model_path):
+    """Use the custom model's config without newer AutoConfig conversions."""
+    from .configuration_llama import LlamaConfig as CustomLlamaConfig
+
+    with (Path(model_path) / "config.json").open(encoding="utf-8") as file:
+        values = json.load(file)
+    if values.get("model_type") != "llama" or values.get("vocab_size") != 128256:
+        raise ValueError("Expected the original Meta-Llama-3-8B-Instruct HF config")
+    scaling = values.get("rope_scaling")
+    if scaling:
+        if scaling.get("rope_type", scaling.get("type")) != "default":
+            raise ValueError("This experiment supports Llama-3, not scaled-RoPE Llama-3.1/3.2")
+        values["rope_theta"] = scaling.get("rope_theta", values.get("rope_theta", 500000.0))
+        values["rope_scaling"] = None
+    return CustomLlamaConfig.from_dict(values)
 
 # torch.autograd.set_detect_anomaly(True)
 
@@ -333,6 +350,7 @@ class Chat3D(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.llama3_mode = config.model.get("llama3_mode", False)
         llama_model_path = config.model.llama_model_path
         self.attn_implementation = config.model.get("attn_implementation", "flash_attention_2")
         self.force_legacy_weight_reload = getattr(
@@ -406,26 +424,46 @@ class Chat3D(nn.Module):
         self.debug = config.debug
         if not self.debug:
             logger.info('Loading LLaMA')
-            self.llama_tokenizer = LlamaTokenizer.from_pretrained(llama_model_path, use_fast=False, legacy=False)
+            if self.llama3_mode:
+                self.llama_tokenizer = AutoTokenizer.from_pretrained(llama_model_path, use_fast=True)
+                if "<|eot_id|>" not in self.llama_tokenizer.get_vocab():
+                    raise ValueError("llama3_mode requires a Llama-3 Instruct tokenizer")
+                self.end_sym = "<|eot_id|>"
+            else:
+                self.llama_tokenizer = LlamaTokenizer.from_pretrained(llama_model_path, use_fast=False, legacy=False)
             if self.llama_tokenizer.pad_token_id is None:
                 self.llama_tokenizer.pad_token = self.llama_tokenizer.eos_token
+            backbone_kwargs = {"config": _load_llama3_config(llama_model_path)} if self.llama3_mode else {}
             if self.low_resource:
                 self.llama_model = LlamaForCausalLM.from_pretrained(
                     llama_model_path,
                     torch_dtype=torch.bfloat16,
                     load_in_8bit=True,
                     device_map="auto",
-                    attn_implementation=self.attn_implementation
+                    attn_implementation=self.attn_implementation,
+                    **backbone_kwargs
                 )
             else:
                 self.llama_model = LlamaForCausalLM.from_pretrained(
                     llama_model_path,
                     torch_dtype=torch.bfloat16,
-                    attn_implementation=self.attn_implementation
+                    attn_implementation=self.attn_implementation,
+                    **backbone_kwargs
                 )
             if self.force_legacy_weight_reload:
                 _reload_llama_safetensors_compat(self.llama_model, llama_model_path)
             _refresh_llama_rotary_inv_freq(self.llama_model)
+            if self.llama3_mode:
+                terminators = list(dict.fromkeys([
+                    self.llama_tokenizer.eos_token_id,
+                    self.llama_tokenizer.convert_tokens_to_ids(self.end_sym),
+                ]))
+                self.llama_model.generation_config.eos_token_id = terminators
+                self.llama_model.generation_config.pad_token_id = self.llama_tokenizer.pad_token_id
+                self.llama_model.generation_config.do_sample = False
+                self.llama_model.generation_config.use_cache = True
+                logger.info("Llama-3 mode: vocab=%d, end_sym=%s, eos=%s",
+                            len(self.llama_tokenizer), self.end_sym, terminators)
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
             # self.llama_model = self.llama_model.to("cuda")
             # print(torch.cuda.memory_allocated(device="cuda:0")/1e9)
@@ -469,19 +507,19 @@ class Chat3D(nn.Module):
                 self.llama_model.print_trainable_parameters()
                 # 冻结输出头 (LM Head)
                 self.llama_model.model.lm_head.weight.requires_grad = True
-                self.llama_model.model.lm_head.weight.data = self.llama_model.model.lm_head.weight.data.float()
+                self.llama_model.model.lm_head.weight.data = self.llama_model.model.lm_head.weight.data.to(torch.bfloat16 if self.llama3_mode else torch.float32)
                 self.llama_model.print_trainable_parameters()
                 # 冻结词表嵌入 (Embedding)
                 self.llama_model.model.model.embed_tokens.weight.requires_grad = True
-                self.llama_model.model.model.embed_tokens.weight.data = self.llama_model.model.model.embed_tokens.weight.data.float()
+                self.llama_model.model.model.embed_tokens.weight.data = self.llama_model.model.model.embed_tokens.weight.data.to(torch.bfloat16 if self.llama3_mode else torch.float32)
                 self.llama_model.print_trainable_parameters()
             else:
                 # 冻结输出头 (LM Head)
                 self.llama_model.lm_head.weight.requires_grad = True
-                self.llama_model.lm_head.weight.data = self.llama_model.lm_head.weight.data.float()
+                self.llama_model.lm_head.weight.data = self.llama_model.lm_head.weight.data.to(torch.bfloat16 if self.llama3_mode else torch.float32)
                 # 冻结词表嵌入 (Embedding)
                 self.llama_model.model.embed_tokens.weight.requires_grad = True
-                self.llama_model.model.embed_tokens.weight.data = self.llama_model.model.embed_tokens.weight.data.float()
+                self.llama_model.model.embed_tokens.weight.data = self.llama_model.model.embed_tokens.weight.data.to(torch.bfloat16 if self.llama3_mode else torch.float32)
             
             self.llama_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant":False})
             objid_tokens = []  # 生成物体ID token
@@ -1014,7 +1052,8 @@ class Chat3D(nn.Module):
             to_regress_token = self.llama_tokenizer(answer, return_tensors="pt", add_special_tokens=False).to(device)
             # breakpoint()
             answer_target = to_regress_token.input_ids.masked_fill(
-                to_regress_token.input_ids == self.llama_tokenizer.pad_token_id, -100
+                (to_regress_token.attention_mask == 0) if self.llama3_mode else
+                (to_regress_token.input_ids == self.llama_tokenizer.pad_token_id), -100
             ).squeeze(0)
             # to_regress_embed = self.llama_model.model.embed_tokens(to_regress_token.input_ids).squeeze(0).detach()
             to_regress_embed, _ = self.get_text_emb(answer, device=device)

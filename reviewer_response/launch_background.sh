@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-source "$(dirname "$0")/lib/common.sh"
+if [[ "${1:-}" == llama3_baseline || "${1:-}" == llama3_full ]]; then
+    source "$(dirname "$0")/lib/llama3.sh"
+else
+    source "$(dirname "$0")/lib/common.sh"
+fi
 
 experiment="${1:-}"
 case "$experiment" in
@@ -36,11 +40,14 @@ case "$experiment" in
     llama2_full)
         script="reviewer_response/run_llama2_full.sh"
         ;;
+    llama3_baseline|llama3_full)
+        script="reviewer_response/run_${experiment}.sh"
+        ;;
     *)
         echo "Usage: bash reviewer_response/launch_background.sh EXPERIMENT" >&2
         echo "Experiments: full_per_head, dynamic_scalar, per_head_no_gate," >&2
         echo "             within_task_gating, layerwise_geometry_probe, efficiency," >&2
-        echo "             proposal_robustness, llama2_baseline, llama2_full" >&2
+        echo "             proposal_robustness, llama2_baseline, llama2_full, llama3_baseline, llama3_full" >&2
         exit 2
         ;;
 esac

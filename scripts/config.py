@@ -259,6 +259,7 @@ batch_size = 32
 model = dict(
     llama_model_path="llm/vicuna-7b-v1.5",
     force_legacy_weight_reload=False,
+    llama3_mode=False,
     input_dim=1024,
     img_input_dim=1024,
     attr_dim=512,

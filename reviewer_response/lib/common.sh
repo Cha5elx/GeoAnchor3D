@@ -171,6 +171,7 @@ run_backbone_training() {
         val_tag "$VAL_TAG" \
         model.llama_model_path "$ALT_LLM_PATH" \
         model.force_legacy_weight_reload True \
+        model.llama3_mode "${BACKBONE_LLAMA3_MODE:-False}" \
         model.attn_implementation "${BACKBONE_ATTN_IMPLEMENTATION:-flash_attention_2}" \
         model.add_scene_token False \
         model.max_obj_num 100 \
